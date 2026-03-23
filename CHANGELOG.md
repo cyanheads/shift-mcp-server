@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.5] - 2026-03-23
+
+### Added
+
+- Resource change notifications — `shift://status` subscribers receive live updates on check-in and check-out via `ctx.notifyResourceUpdated`
+
+### Changed
+
+- Bumped `@cyanheads/mcp-ts-core` from `^0.1.25` to `^0.1.26`
+
 ## [0.1.4] - 2026-03-23
 
 ### Changed
