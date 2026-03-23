@@ -39,6 +39,7 @@ ENV NODE_ENV=production
 # OCI image metadata (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
 LABEL org.opencontainers.image.title="shift-mcp-server"
 LABEL org.opencontainers.image.description="Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously."
+LABEL org.opencontainers.image.source="https://github.com/cyanheads/shift-mcp-server"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # Copy dependency manifests

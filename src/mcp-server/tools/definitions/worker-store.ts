@@ -31,6 +31,11 @@ function formatTime(iso: string): string {
   return iso.slice(11, 16);
 }
 
+/** Escape pipe characters for markdown table cells. */
+function escPipe(s: string): string {
+  return s.replaceAll('|', '\\|');
+}
+
 /** Format worker sessions as a markdown table. */
 export function formatWorkersTable(sessions: WorkerSession[]): string {
   if (sessions.length === 0) return 'No agents are currently active.';
@@ -39,7 +44,7 @@ export function formatWorkersTable(sessions: WorkerSession[]): string {
     .sort((a, b) => a.checkedInAt.localeCompare(b.checkedInAt))
     .map(
       (w) =>
-        `| ${w.workerId} | ${formatTime(w.checkedInAt)} | ${w.gist} | ${w.files.join(', ') || '—'} |`,
+        `| ${w.workerId} | ${formatTime(w.checkedInAt)} | ${escPipe(w.gist)} | ${escPipe(w.files.join(', ')) || '—'} |`,
     )
     .join('\n');
 

@@ -1,6 +1,6 @@
 # shift-mcp-server - Directory Structure
 
-Generated on: 2026-03-23 12:31:46
+Generated on: 2026-03-23 12:42:55
 
 ```text
 shift-mcp-server/
@@ -83,21 +83,19 @@ shift-mcp-server/
 │   │           └── worker-store.ts
 │   └── index.ts
 ├── tests/
-│   ├── prompts/
-│   │   └── echo.prompt.test.ts
-│   ├── resources/
-│   │   └── echo.resource.test.ts
-│   └── tools/
-│       └── echo.tool.test.ts
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
 ├── biome.json
 ├── bun.lock
+├── bunfig.toml
+├── CHANGELOG.md
 ├── CLAUDE.md
 ├── devcheck.config.json
 ├── Dockerfile
+├── LICENSE
 ├── package.json
+├── README.md
 ├── server.json
 ├── tsconfig.build.json
 ├── tsconfig.json
