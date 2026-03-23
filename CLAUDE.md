@@ -252,6 +252,23 @@ import { workers } from '@/mcp-server/tools/definitions/worker-store.js';
 
 ---
 
+## Publishing
+
+After version bump and final commit:
+
+```bash
+bun publish --access public
+
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/cyanheads/shift-mcp-server:<version> \
+  -t ghcr.io/cyanheads/shift-mcp-server:latest \
+  --push .
+
+mcp-publisher publish
+```
+
+---
+
 ## Checklist
 
 - [ ] Zod schemas: all fields have `.describe()`, only JSON-Schema-serializable types (no `z.custom()`, `z.date()`, `z.transform()`, etc.)
