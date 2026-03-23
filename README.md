@@ -1,12 +1,12 @@
 <div align="center">
-  <h1>shift-mcp-server</h1>
+  <h1>@cyanheads/shift-mcp-server</h1>
   <p><b>Lightweight coordination layer for multiple AI agents working on the same codebase. STDIO & Streamable HTTP</b></p>
   <p><b>2 Tools · 1 Resource</b></p>
 </div>
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.1.3-blue.svg?style=flat-square)](./CHANGELOG.md) [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-259?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.27.1-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![TypeScript](https://img.shields.io/badge/TypeScript-^5.9.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/)
+[![Version](https://img.shields.io/badge/Version-0.1.4-blue.svg?style=flat-square)](./CHANGELOG.md) [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-259?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.27.1-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![TypeScript](https://img.shields.io/badge/TypeScript-^5.9.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/)
 
 </div>
 
@@ -73,7 +73,7 @@ Add to your MCP client config (e.g., `claude_desktop_config.json`):
     "shift": {
       "type": "stdio",
       "command": "bunx",
-      "args": ["shift-mcp-server@latest"],
+      "args": ["@cyanheads/shift-mcp-server@latest"],
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio"
       }
