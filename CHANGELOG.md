@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4] - 2026-03-23
+
+### Changed
+
+- Package renamed from `shift-mcp-server` to `@cyanheads/shift-mcp-server` (npm scoped package)
+- Updated all references in `server.json`, `README.md`, and `CLAUDE.md` to use scoped package name
+
 ## [0.1.3] - 2026-03-23
 
 ### Changed
