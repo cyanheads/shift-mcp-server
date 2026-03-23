@@ -1,6 +1,6 @@
 {
   "name": "@cyanheads/shift-mcp-server",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
   "type": "module",
   "main": "dist/index.js",
@@ -54,7 +54,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@cyanheads/mcp-ts-core": "^0.1.25",
+    "@cyanheads/mcp-ts-core": "^0.1.26",
     "depcheck": "^1.4.7",
     "pino-pretty": "^13.1.3"
   },

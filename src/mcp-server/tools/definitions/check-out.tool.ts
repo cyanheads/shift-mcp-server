@@ -24,6 +24,7 @@ export const checkOut = tool('shift_check_out', {
     ctx.log.info(existed ? 'Worker checked out' : 'Worker already checked out (no-op)', {
       workerId: input.workerId,
     });
+    if (existed) ctx.notifyResourceUpdated?.('shift://status');
     return { workerId: input.workerId, summary: input.summary };
   },
 

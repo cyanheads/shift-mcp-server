@@ -79,6 +79,8 @@ export const checkIn = tool('shift_check_in', {
       ctx.log.info('Worker checked in', { workerId });
     }
 
+    ctx.notifyResourceUpdated?.('shift://status');
+
     return {
       workerId: session.workerId,
       gist: session.gist,
