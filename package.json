@@ -1,6 +1,6 @@
 {
   "name": "shift-mcp-server",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
   "type": "module",
   "main": "dist/index.js",
@@ -29,7 +29,10 @@
     "model-context-protocol",
     "multi-agent",
     "coordination",
-    "claude-code"
+    "ai-agents",
+    "agent-coordination",
+    "claude-code",
+    "typescript"
   ],
   "mcpName": "io.github.cyanheads/shift-mcp-server",
   "repository": {

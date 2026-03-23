@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.2] - 2026-03-23
+
+### Added
+
+- Unit tests for `shift_check_in` tool (new sessions, updates, patch semantics, format output)
+- Unit tests for `shift_check_out` tool (handler, error cases, format output)
+- Unit tests for worker store (`generateWorkerId`, `formatWorkersTable`, `workers` map)
+- Unit tests for `shift://status` resource (handler, list, format)
+
+### Changed
+
+- Package keywords expanded with `ai-agents`, `agent-coordination`, `typescript`
+
 ## [0.1.1] - 2026-03-23
 
 ### Added
