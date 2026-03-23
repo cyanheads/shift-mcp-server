@@ -1,19 +1,19 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "shift-mcp-server",
+  "name": "io.github.cyanheads/shift-mcp-server",
   "description": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
   "repository": {
     "url": "https://github.com/cyanheads/shift-mcp-server",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "shift-mcp-server",
-      "runtimeHint": "node",
-      "version": "0.1.0",
+      "runtimeHint": "bun",
+      "version": "0.1.1",
       "packageArguments": [
         {
           "type": "positional",
@@ -41,8 +41,8 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "shift-mcp-server",
-      "runtimeHint": "node",
-      "version": "0.1.0",
+      "runtimeHint": "bun",
+      "version": "0.1.1",
       "packageArguments": [
         {
           "type": "positional",

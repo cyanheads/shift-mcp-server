@@ -1,7 +1,7 @@
 # Agent Protocol
 
 **Server:** shift-mcp-server
-**Version:** 0.1.0
+**Version:** 0.1.1
 **Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core)
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
@@ -80,43 +80,51 @@ See `docs/design.md` for complete tool schemas, response formats, and behavior s
 
 ```ts
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { notFound } from '@cyanheads/mcp-ts-core/errors';
+import { workers, generateWorkerId } from './worker-store.js';
 
-export const searchItems = tool('search_items', {
-  description: 'Search inventory items by query.',
-  annotations: { readOnlyHint: true },
+export const checkOut = tool('shift_check_out', {
+  description: 'End your working session. Removes you from the active worker list.',
+  annotations: { readOnlyHint: false, idempotentHint: true },
   input: z.object({
-    query: z.string().describe('Search terms'),
-    limit: z.number().default(10).describe('Max results'),
+    workerId: z.string().describe('Your worker ID received at check-in.'),
+    summary: z.string().optional().describe('One sentence describing what was accomplished.'),
   }),
   output: z.object({
-    items: z.array(z.object({
-      id: z.string().describe('Item ID'),
-      name: z.string().describe('Item name'),
-    })).describe('Matching items'),
+    workerId: z.string().describe('The worker ID that was checked out.'),
+    summary: z.string().optional().describe('The provided session summary.'),
   }),
 
-  async handler(input, ctx) {
-    const items = await findItems(input.query, input.limit);
-    ctx.log.info('Search completed', { query: input.query, count: items.length });
-    return { items };
+  handler(input, ctx) {
+    if (!workers.has(input.workerId)) {
+      throw notFound(`Worker ID ${input.workerId} not found.`);
+    }
+    workers.delete(input.workerId);
+    ctx.log.info('Worker checked out', { workerId: input.workerId });
+    return { workerId: input.workerId, summary: input.summary };
   },
 
-  format: (result) => [{ type: 'text', text: `Found ${result.items.length} items` }],
+  format(result) {
+    let text = `Checked out Worker ${result.workerId}. Session ended.`;
+    if (result.summary) text += `\nSummary: ${result.summary}`;
+    return [{ type: 'text' as const, text }];
+  },
 });
 ```
 
 ### Resource
 
 ```ts
-import { resource, z } from '@cyanheads/mcp-ts-core';
+import { resource } from '@cyanheads/mcp-ts-core';
+import { formatWorkersTable, workers } from '@/mcp-server/tools/definitions/worker-store.js';
 
-export const itemData = resource('inventory://{itemId}', {
-  description: 'Fetch an inventory item by ID.',
-  params: z.object({ itemId: z.string().describe('Item identifier') }),
-  async handler(params, ctx) {
-    const item = await ctx.state.get(`item:${params.itemId}`);
-    if (!item) throw new Error(`Item ${params.itemId} not found`);
-    return item;
+export const statusResource = resource('shift://status', {
+  name: 'Active Workers',
+  description: 'All currently active workers with their gists, declared files, and check-in timestamps.',
+  mimeType: 'text/markdown',
+
+  handler() {
+    return `## Active Workers (${workers.size})\n${formatWorkersTable([...workers.values()])}`;
   },
 });
 ```
@@ -166,6 +174,7 @@ src/
     tools/definitions/
       check-in.tool.ts                  # shift_check_in
       check-out.tool.ts                 # shift_check_out
+      worker-store.ts                   # In-memory Map + ID gen + table formatting
     resources/definitions/
       status.resource.ts                # shift://status
 ```
@@ -221,6 +230,7 @@ When you complete a skill's checklist, check the boxes and add a completion time
 | `bun run devcheck` | Lint + format + typecheck + security |
 | `bun run tree` | Generate directory structure doc |
 | `bun run format` | Auto-fix formatting |
+| `bun run lint:mcp` | Validate MCP tool/resource definitions |
 | `bun test` | Run tests |
 | `bun run dev:stdio` | Dev mode (stdio) |
 | `bun run dev:http` | Dev mode (HTTP) |
