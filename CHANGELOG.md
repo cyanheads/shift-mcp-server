@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3] - 2026-03-23
+
+### Changed
+
+- `shift_check_in` and `shift_check_out` now validate `workerId` with regex pattern (`/^[A-Z0-9]{6}$/`)
+- `shift_check_out` is now idempotent — succeeds silently when worker ID doesn't exist or was already checked out
+- Exported `WORKER_ID_PATTERN` constant from worker store
+
 ## [0.1.2] - 2026-03-23
 
 ### Added
