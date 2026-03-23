@@ -4,15 +4,14 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { notFound } from '@cyanheads/mcp-ts-core/errors';
-import { formatWorkersTable, workers } from './worker-store.js';
+import { WORKER_ID_PATTERN, workers } from './worker-store.js';
 
 export const checkOut = tool('shift_check_out', {
   description:
     'End your working session. Removes you from the active worker list so other agents no longer see you as active.',
   annotations: { readOnlyHint: false, idempotentHint: true },
   input: z.object({
-    workerId: z.string().describe('Your worker ID received at check-in.'),
+    workerId: z.string().regex(WORKER_ID_PATTERN).describe('Your worker ID received at check-in.'),
     summary: z.string().optional().describe('One sentence describing what was accomplished.'),
   }),
   output: z.object({
@@ -21,13 +20,10 @@ export const checkOut = tool('shift_check_out', {
   }),
 
   handler(input, ctx) {
-    if (!workers.has(input.workerId)) {
-      throw notFound(
-        `Worker ID ${input.workerId} not found. It may have already been checked out.\n\n## Active Workers\n${formatWorkersTable([...workers.values()])}`,
-      );
-    }
-    workers.delete(input.workerId);
-    ctx.log.info('Worker checked out', { workerId: input.workerId });
+    const existed = workers.delete(input.workerId);
+    ctx.log.info(existed ? 'Worker checked out' : 'Worker already checked out (no-op)', {
+      workerId: input.workerId,
+    });
     return { workerId: input.workerId, summary: input.summary };
   },
 

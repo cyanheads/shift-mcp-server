@@ -13,6 +13,9 @@ export interface WorkerSession {
 const ID_LENGTH = 6;
 const ID_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
+/** Regex pattern matching a valid worker ID (6-char uppercase alphanumeric). */
+export const WORKER_ID_PATTERN = /^[A-Z0-9]{6}$/;
+
 /** Active worker sessions keyed by workerId. */
 export const workers = new Map<string, WorkerSession>();
 

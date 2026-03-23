@@ -8,6 +8,7 @@ import { notFound } from '@cyanheads/mcp-ts-core/errors';
 import {
   formatWorkersTable,
   generateWorkerId,
+  WORKER_ID_PATTERN,
   type WorkerSession,
   workers,
 } from './worker-store.js';
@@ -38,6 +39,7 @@ export const checkIn = tool('shift_check_in', {
       ),
     workerId: z
       .string()
+      .regex(WORKER_ID_PATTERN)
       .optional()
       .describe(
         'Your worker ID from a previous check-in. Omit on first call to receive a new one. Pass to update your session.',

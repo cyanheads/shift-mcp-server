@@ -7,7 +7,7 @@ import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { checkIn } from '@/mcp-server/tools/definitions/check-in.tool.js';
-import { workers, type WorkerSession } from '@/mcp-server/tools/definitions/worker-store.js';
+import { type WorkerSession, workers } from '@/mcp-server/tools/definitions/worker-store.js';
 
 function parse(input: Record<string, unknown>) {
   return checkIn.input.parse(input);
@@ -88,9 +88,9 @@ describe('shift_check_in', () => {
     });
 
     it('throws when workerId does not exist', () => {
-      expect(() =>
-        checkIn.handler(parse({ gist: 'Anything', workerId: 'ZZZZZZ' }), ctx),
-      ).toThrow(/not found/i);
+      expect(() => checkIn.handler(parse({ gist: 'Anything', workerId: 'ZZZZZZ' }), ctx)).toThrow(
+        /not found/i,
+      );
     });
   });
 

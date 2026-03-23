@@ -5,7 +5,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { statusResource } from '@/mcp-server/resources/definitions/status.resource.js';
-import { workers, type WorkerSession } from '@/mcp-server/tools/definitions/worker-store.js';
+import { type WorkerSession, workers } from '@/mcp-server/tools/definitions/worker-store.js';
 
 const makeWorker = (overrides: Partial<WorkerSession> = {}): WorkerSession => ({
   workerId: 'ABC123',
@@ -73,9 +73,7 @@ describe('statusResource', () => {
       const listing = await statusResource.list!();
 
       expect(listing).toEqual({
-        resources: [
-          { uri: 'shift://status', name: 'Active Workers', mimeType: 'text/markdown' },
-        ],
+        resources: [{ uri: 'shift://status', name: 'Active Workers', mimeType: 'text/markdown' }],
       });
     });
   });
@@ -87,9 +85,7 @@ describe('statusResource', () => {
 
       const blocks = statusResource.format!(text, meta);
 
-      expect(blocks).toEqual([
-        { uri: 'shift://status', text, mimeType: 'text/markdown' },
-      ]);
+      expect(blocks).toEqual([{ uri: 'shift://status', text, mimeType: 'text/markdown' }]);
     });
   });
 });

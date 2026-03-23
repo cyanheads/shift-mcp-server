@@ -7,8 +7,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   formatWorkersTable,
   generateWorkerId,
-  workers,
   type WorkerSession,
+  workers,
 } from '@/mcp-server/tools/definitions/worker-store.js';
 
 beforeEach(() => {

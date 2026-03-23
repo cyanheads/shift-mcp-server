@@ -26,10 +26,7 @@ describe('shift_check_out', () => {
       workers.set(SESSION.workerId, { ...SESSION });
       const ctx = createMockContext();
 
-      const result = checkOut.handler(
-        checkOut.input.parse({ workerId: SESSION.workerId }),
-        ctx,
-      );
+      const result = checkOut.handler(checkOut.input.parse({ workerId: SESSION.workerId }), ctx);
 
       expect(result.workerId).toBe(SESSION.workerId);
       expect(workers.has(SESSION.workerId)).toBe(false);
@@ -51,31 +48,28 @@ describe('shift_check_out', () => {
       workers.set(SESSION.workerId, { ...SESSION });
       const ctx = createMockContext();
 
-      const result = checkOut.handler(
-        checkOut.input.parse({ workerId: SESSION.workerId }),
-        ctx,
-      );
+      const result = checkOut.handler(checkOut.input.parse({ workerId: SESSION.workerId }), ctx);
 
       expect(result.summary).toBeUndefined();
     });
 
-    it('throws when the workerId does not exist', () => {
+    it('succeeds silently when the workerId does not exist (idempotent)', () => {
       const ctx = createMockContext();
 
-      expect(() =>
-        checkOut.handler(checkOut.input.parse({ workerId: 'NOPE00' }), ctx),
-      ).toThrow(/not found/i);
+      const result = checkOut.handler(checkOut.input.parse({ workerId: 'NOPE00' }), ctx);
+
+      expect(result.workerId).toBe('NOPE00');
     });
 
-    it('throws when the worker was already checked out', () => {
+    it('succeeds silently when the worker was already checked out (idempotent)', () => {
       workers.set(SESSION.workerId, { ...SESSION });
       const ctx = createMockContext();
 
       checkOut.handler(checkOut.input.parse({ workerId: SESSION.workerId }), ctx);
+      const result = checkOut.handler(checkOut.input.parse({ workerId: SESSION.workerId }), ctx);
 
-      expect(() =>
-        checkOut.handler(checkOut.input.parse({ workerId: SESSION.workerId }), ctx),
-      ).toThrow(/not found/i);
+      expect(result.workerId).toBe(SESSION.workerId);
+      expect(workers.has(SESSION.workerId)).toBe(false);
     });
 
     it('leaves no trace in the map after checkout', () => {
