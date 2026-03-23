@@ -23,7 +23,14 @@
     "start:stdio": "MCP_TRANSPORT_TYPE=stdio node dist/index.js",
     "start:http": "MCP_TRANSPORT_TYPE=http node dist/index.js"
   },
-  "keywords": ["mcp", "mcp-server", "model-context-protocol", "multi-agent", "coordination", "claude-code"],
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "multi-agent",
+    "coordination",
+    "claude-code"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/cyanheads/shift-mcp-server.git"
