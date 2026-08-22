@@ -1,17 +1,17 @@
 ---
 name: add-test
 description: >
-  Scaffold a test file for an existing tool, resource, or service. Use when the user asks to add tests, improve coverage, or when a definition exists without a colocated test file.
+  Scaffold a test file for an existing tool, resource, or service. Use when the user asks to add tests, improve coverage, or when a definition exists without a matching test file.
 metadata:
   author: cyanheads
-  version: "1.0"
+  version: "1.6"
   audience: external
   type: reference
 ---
 
 ## Context
 
-Tests use Vitest and `createMockContext` from `@cyanheads/mcp-ts-core/testing`. Test files are colocated with their source: `foo.tool.ts` gets `foo.tool.test.ts` in the same directory.
+Tests use Vitest and `createMockContext` from `@cyanheads/mcp-ts-core/testing`. If the repo already has tests, match the existing layout. If the repo has no existing tests, create a root `tests/` directory that mirrors the `src/` structure (e.g. `tests/mcp-server/tools/definitions/echo.tool.test.ts` for `src/mcp-server/tools/definitions/echo.tool.ts`).
 
 For the full `createMockContext` API and testing patterns, read:
 
@@ -21,10 +21,10 @@ For the full `createMockContext` API and testing patterns, read:
 
 1. **Identify the target** — which tool, resource, or service needs tests
 2. **Read the source file** — understand the handler's logic, input/output schemas, error paths, and which `ctx` features it uses
-3. **Create the test file** colocated with the source
+3. **Create the test file** in the repo's existing test layout — search for existing `*.test.ts` files to confirm whether tests are colocated with source or under a root `tests/` directory
 4. **Write test cases** covering happy path, error paths, and edge cases
-5. **Run `npm test`** to verify
-6. **Run `bun run devcheck`** to verify types
+5. **Run `bun run test`** to verify
+6. **Run `bun run devcheck`** to verify lint, types, and MCP definitions
 
 ## Determining What to Test
 
@@ -35,10 +35,13 @@ Read the handler and identify:
 | **Happy path** | Valid input → expected output. Include at least one. |
 | **Input variations** | Optional fields omitted, defaults applied, boundary values |
 | **Error paths** | Invalid state, missing resources, service failures → correct error thrown |
-| **`ctx.state` usage** | Use `createMockContext({ tenantId: 'test' })` to enable storage |
-| **`ctx.elicit` / `ctx.sample`** | Mock with `vi.fn()`, also test the absent case (undefined) |
-| **`ctx.progress`** | Use `createMockContext({ progress: true })` for task tools |
-| **`format` function** | Test separately if defined — it's pure, no ctx needed |
+| **`ctx.state` usage** | Available on any mock context (tenant `'default'` unless `{ tenantId }` says otherwise). It runs the production storage path, so use storage-legal keys (`cache/v1/abc`, never `cache:v1:abc`) and assert TTL expiry with fake timers. |
+| **`ctx.requestInput` / `ctx.inputs`** | Two rounds. First round: assert the handler throws the input-required signal (`.rejects.toSatisfy(isInputRequiredSignal)`), or catch it and assert on `error.result.inputRequests`. Second round: seed `createMockContext({ inputResponses })` and assert the handler completes. Cover the decline/cancel branch too. |
+| **`ctx.signal`** | Pass `createMockContext({ signal: controller.signal })` and assert a long loop stops early rather than running to completion. |
+| **`ctx.fail` (typed contract)** | Definitions with `errors[]` need `fail` attached to the mock ctx — `createMockContext({ errors: myTool.errors })` does it for you. Assert on `data.reason` (stable per-contract entry), not just `code`. |
+| **`format` function** | Test separately if defined — it's pure, no ctx needed. Verify it renders the IDs and fields the model needs, not just a count or title. For projection-style tools, test non-default field selections. |
+| **Sparse upstream payloads** | For third-party API integrations, build a fixture with omitted fields. Assert normalized output still validates and `format()` preserves unknown values instead of inventing facts. |
+| **Form-client payloads** | If handler has optional fields: test with empty-string inner values (form clients send `""` instead of `undefined`). Assert handler doesn't break or produce invalid output. |
 | **Auth scopes** | Not tested at handler level (framework enforces) — skip |
 
 ## Templates
@@ -48,12 +51,12 @@ Read the handler and identify:
 ```typescript
 /**
  * @fileoverview Tests for {{TOOL_NAME}} tool.
- * @module mcp-server/tools/definitions/{{TOOL_NAME}}.test
+ * @module tests/tools/{{TOOL_NAME}}.tool.test
  */
 
 import { describe, expect, it } from 'vitest';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
-import { {{TOOL_EXPORT}} } from './{{tool-name}}.tool.js';
+import { {{TOOL_EXPORT}} } from '@/mcp-server/tools/definitions/{{tool-name}}.tool.js';
 
 describe('{{TOOL_EXPORT}}', () => {
   it('returns expected output for valid input', async () => {
@@ -75,11 +78,22 @@ describe('{{TOOL_EXPORT}}', () => {
     await expect({{TOOL_EXPORT}}.handler(input, ctx)).rejects.toThrow();
   });
 
-  it('formats output correctly', () => {
+  // Only when the tool declares `errors: [...]`. Drop this block otherwise.
+  it('throws ctx.fail("{{REASON}}") for the declared failure mode', async () => {
+    const ctx = createMockContext({ errors: {{TOOL_EXPORT}}.errors });
+    const input = {{TOOL_EXPORT}}.input.parse({
+      // input that triggers the declared failure mode
+    });
+    await expect({{TOOL_EXPORT}}.handler(input, ctx)).rejects.toMatchObject({
+      data: { reason: '{{REASON}}' },
+    });
+  });
+
+  it('formats output completely', () => {
     const output = { /* mock output matching the output schema */ };
     const blocks = {{TOOL_EXPORT}}.format!(output);
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].type).toBe('text');
+    expect(blocks.some((block) => block.type === 'text')).toBe(true);
+    // Assert the rendered text includes the IDs/fields the LLM needs to act on.
   });
 });
 ```
@@ -89,12 +103,12 @@ describe('{{TOOL_EXPORT}}', () => {
 ```typescript
 /**
  * @fileoverview Tests for {{RESOURCE_NAME}} resource.
- * @module mcp-server/resources/definitions/{{RESOURCE_NAME}}.test
+ * @module tests/resources/{{RESOURCE_NAME}}.resource.test
  */
 
 import { describe, expect, it } from 'vitest';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
-import { {{RESOURCE_EXPORT}} } from './{{resource-name}}.resource.js';
+import { {{RESOURCE_EXPORT}} } from '@/mcp-server/resources/definitions/{{resource-name}}.resource.js';
 
 describe('{{RESOURCE_EXPORT}}', () => {
   it('returns data for valid params', async () => {
@@ -114,6 +128,15 @@ describe('{{RESOURCE_EXPORT}}', () => {
     await expect({{RESOURCE_EXPORT}}.handler(params, ctx)).rejects.toThrow();
   });
 
+  // For resources that declare an `errors: [...]` contract, pass the contract via
+  // `createMockContext` so the typed `ctx.fail` is wired automatically:
+  //   const ctx = createMockContext({ errors: {{RESOURCE_EXPORT}}.errors });
+  //   const err = await {{RESOURCE_EXPORT}}.handler(params, ctx).catch((e) => e);
+  //   expect(err.code).toBe(JsonRpcErrorCode.NotFound);
+  //   expect(err.data.reason).toBe('no_match');
+
+  // Include this block only when the resource definition exports a `list` function.
+  // Check the source — `list` is optional on resource definitions.
   it('lists available resources', async () => {
     const listing = await {{RESOURCE_EXPORT}}.list!();
     expect(listing.resources).toBeInstanceOf(Array);
@@ -131,16 +154,21 @@ describe('{{RESOURCE_EXPORT}}', () => {
 ```typescript
 /**
  * @fileoverview Tests for {{SERVICE_NAME}} service.
- * @module services/{{domain}}/{{SERVICE_NAME}}.test
+ * @module tests/services/{{domain}}/{{domain}}-service.test
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
-import { init{{ServiceClass}}, get{{ServiceClass}} } from './{{service-name}}-service.js';
+import { StorageService } from '@cyanheads/mcp-ts-core/storage';
+import { get{{ServiceClass}}, init{{ServiceClass}} } from '@/services/{{domain}}/{{domain}}-service.js';
+
+// Derive the minimal mock config from src/config/server-config.ts — read
+// the server's Zod schema to see which fields init{{ServiceClass}}() needs.
+const mockConfig = { /* fields from server config schema */ } as AppConfig;
 
 describe('{{ServiceClass}}', () => {
-  beforeEach(() => {
-    // Re-initialize with fresh config/storage per suite
+  beforeEach(async () => {
+    const mockStorage = await StorageService.create({ type: 'in-memory' });
     init{{ServiceClass}}(mockConfig, mockStorage);
   });
 
@@ -150,47 +178,116 @@ describe('{{ServiceClass}}', () => {
     const result = await service.doWork('input', ctx);
     expect(result).toBeDefined();
   });
+});
+```
 
-  it('throws when not initialized', () => {
-    // Reset the singleton — this is the only case where accessing
-    // the module internals is acceptable
-    expect(() => get{{ServiceClass}}()).toThrow(/not initialized/);
+If you need to test the accessor's "not initialized" guard, do it in a separate isolated-module test (`vi.resetModules()` before importing the service module). Don't mix that assertion into a suite that already calls `init{{ServiceClass}}()` in `beforeEach()`.
+
+### Multi-round-trip tool test
+
+A handler that calls `ctx.requestInput(...)` throws an `InputRequiredSignal` — in production the handler factory converts it to an `input_required` result; in a unit test it surfaces as a thrown value. Test both rounds.
+
+```typescript
+import { isInputRequiredSignal } from '@cyanheads/mcp-ts-core';
+import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+
+it('requests the missing input on the first round', async () => {
+  const ctx = createMockContext();
+  const input = {{TOOL_EXPORT}}.input.parse({ path: '/tmp/x' });
+
+  try {
+    await {{TOOL_EXPORT}}.handler(input, ctx);
+    throw new Error('Expected the handler to request input.');
+  } catch (error) {
+    if (!isInputRequiredSignal(error)) throw error;
+    expect(Object.keys(error.result.inputRequests ?? {})).toEqual(['confirm']);
+  }
+});
+
+it('completes once the response is supplied', async () => {
+  const ctx = createMockContext({
+    inputResponses: { confirm: { action: 'accept', content: { confirm: true } } },
+  });
+  const input = {{TOOL_EXPORT}}.input.parse({ path: '/tmp/x' });
+
+  await expect({{TOOL_EXPORT}}.handler(input, ctx)).resolves.toMatchObject({ deleted: '/tmp/x' });
+});
+
+it('does not re-ask after a decline', async () => {
+  const ctx = createMockContext({ inputResponses: { confirm: { action: 'decline' } } });
+  const input = {{TOOL_EXPORT}}.input.parse({ path: '/tmp/x' });
+
+  // Terminal, not another round — re-asking would burn the round budget.
+  await expect({{TOOL_EXPORT}}.handler(input, ctx)).rejects.toThrow(McpError);
+});
+```
+
+### Cancellation test
+
+```typescript
+it('respects cancellation', async () => {
+  const controller = new AbortController();
+  const ctx = createMockContext({ signal: controller.signal });
+  const input = {{TOOL_EXPORT}}.input.parse({ count: 100, delayMs: 10 });
+
+  setTimeout(() => controller.abort(), 50);
+  const result = await {{TOOL_EXPORT}}.handler(input, ctx);
+
+  // Should have returned a partial result rather than throwing on cancellation.
+  // Assert on a field from the tool's actual output schema.
+  expect(result).toBeDefined();
+});
+```
+
+### Prompt test
+
+```typescript
+/**
+ * @fileoverview Tests for {{PROMPT_NAME}} prompt.
+ * @module tests/prompts/{{PROMPT_NAME}}.prompt.test
+ */
+
+import { describe, expect, it } from 'vitest';
+import { {{PROMPT_EXPORT}} } from '@/mcp-server/prompts/definitions/{{prompt-name}}.prompt.js';
+
+describe('{{PROMPT_EXPORT}}', () => {
+  it('generates valid messages for valid args', () => {
+    const args = {{PROMPT_EXPORT}}.args!.parse({
+      // valid args matching the Zod schema
+    });
+    const messages = {{PROMPT_EXPORT}}.generate(args);
+    expect(messages).toBeInstanceOf(Array);
+    expect(messages.length).toBeGreaterThan(0);
+    for (const msg of messages) {
+      expect(msg).toHaveProperty('role');
+      expect(msg).toHaveProperty('content');
+    }
+  });
+
+  // Include only when the prompt has no required args (args is optional or all fields optional).
+  it('generates messages with no args', () => {
+    const messages = {{PROMPT_EXPORT}}.generate({});
+    expect(messages.length).toBeGreaterThan(0);
   });
 });
 ```
 
-### Task tool test
+## Fuzz Testing
 
-For tools with `task: true`, use `createMockContext({ progress: true })`:
+For schema-heavy or input-validation-critical handlers, the framework ships fuzz helpers that generate valid + adversarial inputs from your Zod schemas via `fast-check` and assert handler invariants (no crashes, no prototype pollution, no stack-trace leaks):
 
 ```typescript
-it('reports progress during execution', async () => {
-  const ctx = createMockContext({ progress: true });
-  const input = {{TOOL_EXPORT}}.input.parse({ count: 3, delayMs: 10 });
-  await {{TOOL_EXPORT}}.handler(input, ctx);
+import { fuzzTool } from '@cyanheads/mcp-ts-core/testing/fuzz';
 
-  const progress = ctx.progress as ContextProgress & {
-    _total: number;
-    _completed: number;
-    _messages: string[];
-  };
-  expect(progress._total).toBe(3);
-  expect(progress._completed).toBe(3);
-});
-
-it('respects cancellation', async () => {
-  const controller = new AbortController();
-  const ctx = createMockContext({ progress: true, signal: controller.signal });
-  const input = {{TOOL_EXPORT}}.input.parse({ count: 100, delayMs: 10 });
-
-  // Abort after a short delay
-  setTimeout(() => controller.abort(), 50);
-  const result = await {{TOOL_EXPORT}}.handler(input, ctx);
-
-  // Should have stopped early
-  expect(result.finalCount).toBeGreaterThan(0);
+it('survives fuzz testing', async () => {
+  const report = await fuzzTool({{TOOL_EXPORT}}, { numRuns: 100 });
+  expect(report.crashes).toHaveLength(0);
+  expect(report.leaks).toHaveLength(0);
+  expect(report.prototypePollution).toBe(false);
 });
 ```
+
+Available helpers from `@cyanheads/mcp-ts-core/testing/fuzz`: `fuzzTool`, `fuzzResource`, `fuzzPrompt`, `zodToArbitrary` (custom property-based tests), `adversarialArbitrary` and `ADVERSARIAL_STRINGS` (targeted injection sets). Returns a `FuzzReport` you can assert against. Options: `numRuns`, `numAdversarial`, `seed` (reproducibility), `timeout`, `ctx` (`MockContextOptions` for stateful handlers).
 
 ## Generating Tests from Schemas
 
@@ -202,15 +299,19 @@ When scaffolding tests for an existing handler, use the Zod schemas to generate 
 4. **Defaults** — omit optional fields, verify defaults are applied in the output
 5. **Boundaries** — if the schema has `.min()`, `.max()`, `.length()`, test at the boundaries
 6. **Error paths** — trace the handler logic for throw conditions, construct inputs that trigger each
+7. **Sparse upstream fixtures** — if the handler/service wraps a third-party API, add at least one fixture where upstream omits optional fields entirely. Assert that the output still validates and that `format()` renders uncertainty honestly (`Not available`, omitted badge, etc.) instead of fabricating values.
 
 ## Checklist
 
-- [ ] Test file created at `src/.../{{name}}.test.ts` (colocated with source)
+- [ ] Test file created in the repo's existing layout (`tests/...` or colocated with source)
 - [ ] JSDoc `@fileoverview` and `@module` header present
 - [ ] Happy path tested with valid input → expected output
 - [ ] Error paths tested (at least one `.rejects.toThrow()`)
 - [ ] `format` function tested if defined
-- [ ] `createMockContext` options match handler's ctx usage (`tenantId`, `progress`, `elicit`, `sample`)
+- [ ] `createMockContext` options match handler's ctx usage (`tenantId`, `inputResponses`, `requestState`, `errors`, `signal`)
 - [ ] Service re-initialized in `beforeEach` if handler depends on a service singleton
-- [ ] `npm test` passes
+- [ ] If handler has optional fields: tested with empty-string inner values (form-client simulation)
+- [ ] If wrapping external API: sparse-payload case tested — fixture omits at least one optional upstream field; output still validates and `format()` renders uncertainty honestly instead of inventing values
+- [ ] If target is a prompt: `generate()` tested with valid args and (when applicable) no args
+- [ ] `bun run test` passes
 - [ ] `bun run devcheck` passes

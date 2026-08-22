@@ -1,0 +1,34 @@
+{
+  "name": "shift-mcp-server",
+  "version": "0.1.6",
+  "description": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
+  "author": {
+    "name": "cyanheads",
+    "email": "casey@caseyjhand.com",
+    "url": "https://github.com/cyanheads"
+  },
+  "homepage": "https://github.com/cyanheads/shift-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/shift-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "multi-agent",
+    "coordination",
+    "ai-agents",
+    "agent-coordination",
+    "claude-code"
+  ],
+  "mcpServers": "./.codex-plugin/mcp.json",
+  "interface": {
+    "displayName": "shift-mcp-server",
+    "shortDescription": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
+    "longDescription": "Check agents in and out of a shared codebase so concurrent sessions can see each other. Each check-in returns a worker ID, the coordination protocol, and a table of active peers with their declared scope and files; the shift://status resource exposes the same roster and notifies subscribers on every change. State is in-memory and clears on restart.",
+    "developerName": "cyanheads",
+    "category": "developer-tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/cyanheads/shift-mcp-server",
+    "defaultPrompt": []
+  }
+}

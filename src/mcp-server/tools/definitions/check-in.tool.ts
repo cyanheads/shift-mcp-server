@@ -4,14 +4,14 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { notFound } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import {
   formatWorkersTable,
   generateWorkerId,
   WORKER_ID_PATTERN,
   type WorkerSession,
   workers,
-} from './worker-store.js';
+} from '@/services/worker-store/worker-store.js';
 
 const COORDINATION_PROTOCOL = `## Coordination Protocol
 - You are in a multi-agent workspace. Other developers may be modifying files concurrently.
@@ -19,12 +19,14 @@ const COORDINATION_PROTOCOL = `## Coordination Protocol
 - Keep your changes focused on your declared scope. If your scope changes significantly, run shift_check_in again with your worker ID to update.
 - When your session is complete, run shift_check_out with your worker ID.`;
 
-const workerSchema = z.object({
-  workerId: z.string().describe('Worker ID.'),
-  gist: z.string().describe('What the worker is doing.'),
-  files: z.array(z.string()).describe('Declared file paths.'),
-  checkedInAt: z.string().describe('ISO 8601 check-in timestamp.'),
-});
+const workerSchema = z
+  .object({
+    workerId: z.string().describe('Worker ID.'),
+    gist: z.string().describe('What the worker is doing.'),
+    files: z.array(z.string()).describe('Declared file paths.'),
+    checkedInAt: z.string().describe('ISO 8601 check-in timestamp.'),
+  })
+  .describe('An active worker session.');
 
 export const checkIn = tool('shift_check_in', {
   description: `This is a multi-agent workspace. Run this tool at the start of every working session to check in and receive coordination instructions. Provide a concise gist of what you're working on and the file paths you expect to modify (if known). If you already have a worker ID from a previous check-in, pass it to update your session.`,
@@ -53,14 +55,26 @@ export const checkIn = tool('shift_check_in', {
     activeWorkers: z.array(workerSchema).describe('All currently active workers.'),
   }),
 
+  errors: [
+    {
+      reason: 'unknown_worker',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'The supplied workerId has no active session — it was checked out, or the server restarted.',
+      recovery:
+        'Omit workerId to start a new session, or reuse an ID from the active workers table.',
+    },
+  ],
+
   handler(input, ctx) {
     let session: WorkerSession;
 
     if (input.workerId) {
       const existing = workers.get(input.workerId);
       if (!existing) {
-        throw notFound(
+        throw ctx.fail(
+          'unknown_worker',
           `Worker ID ${input.workerId} not found. Omit workerId to start a new session.\n\n## Active Workers\n${formatWorkersTable([...workers.values()])}`,
+          ctx.recoveryFor('unknown_worker'),
         );
       }
       existing.gist = input.gist;
@@ -97,12 +111,11 @@ export const checkIn = tool('shift_check_in', {
 - **Files:** ${result.files.length > 0 ? result.files.join(', ') : '—'}
 - **Checked in:** ${result.checkedInAt}`;
 
-    const others = result.activeWorkers.filter((w) => w.workerId !== result.workerId);
-    const active =
-      others.length === 0
-        ? "## Active Workers\nYou're the first to check in. No other agents are currently active."
-        : `## Active Workers\n${formatWorkersTable(result.activeWorkers)}`;
+    const hasPeers = result.activeWorkers.some((w) => w.workerId !== result.workerId);
+    const active = hasPeers
+      ? `## Active Workers\n${formatWorkersTable(result.activeWorkers)}`
+      : "## Active Workers\nYou're the first to check in. No other agents are currently active.";
 
-    return [{ type: 'text' as const, text: `${session}\n\n${COORDINATION_PROTOCOL}\n\n${active}` }];
+    return [{ type: 'text', text: `${session}\n\n${COORDINATION_PROTOCOL}\n\n${active}` }];
   },
 });

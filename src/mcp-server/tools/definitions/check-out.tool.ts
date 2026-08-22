@@ -4,7 +4,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { WORKER_ID_PATTERN, workers } from './worker-store.js';
+import { WORKER_ID_PATTERN, workers } from '@/services/worker-store/worker-store.js';
 
 export const checkOut = tool('shift_check_out', {
   description:
@@ -31,6 +31,6 @@ export const checkOut = tool('shift_check_out', {
   format(result) {
     let text = `Checked out Worker ${result.workerId}. Session ended.`;
     if (result.summary) text += `\nSummary: ${result.summary}`;
-    return [{ type: 'text' as const, text }];
+    return [{ type: 'text', text }];
   },
 });

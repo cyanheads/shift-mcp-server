@@ -4,7 +4,7 @@ description: >
   Authentication, authorization, and multi-tenancy patterns for `@cyanheads/mcp-ts-core`. Use when implementing auth scopes on tools/resources, configuring auth modes (none/jwt/oauth), working with JWT/OAuth env vars, or understanding how tenantId flows through ctx.state.
 metadata:
   author: cyanheads
-  version: "1.0"
+  version: "1.3"
   audience: external
   type: reference
 ---
@@ -94,9 +94,43 @@ Set via `MCP_AUTH_MODE` environment variable.
 | Claim | JWT Field | Purpose |
 |:------|:----------|:--------|
 | `clientId` | `cid` / `client_id` | Identifies the calling client |
-| `scopes` | `scp` / `scope` | Space-separated list of granted scopes |
+| `scopes` | union of `scp`, `scope`, `mcp_tool_scopes` | Granted scope list (see below) |
 | `sub` | `sub` | Subject (user or service identity) |
 | `tenantId` | `tid` | Tenant identifier — drives `ctx.state` scoping |
+
+`scopes` is the **union** of three claims, in this order:
+
+| Claim | Form | Source |
+|:------|:-----|:-------|
+| `scp` | array of strings | Okta-style |
+| `scope` | space-delimited string | OAuth 2.1 / OIDC standard |
+| `mcp_tool_scopes` | array of strings **or** space-delimited string | Custom claim for OIDC providers that cannot inject scopes into `scope` during the `authorization_code` flow (Authentik, Keycloak < 26.5, Zitadel) |
+
+Auth0/Okta-style providers that already populate `scp` or `scope` need no migration. Other deployments add a property mapping returning `{"mcp_tool_scopes": "tool:foo:read tool:bar:write"}` — the framework unions it into `ctx.auth.scopes` alongside the standard claims. Hardcoded claim name; deployments whose IdP cannot emit `mcp_tool_scopes` use the bypass flag below.
+
+### OIDC operator setup (Authentik / Keycloak / Zitadel)
+
+Standard OIDC providers compute the JWT `scope` claim from what the OAuth client requested at the authorization endpoint and ignore property mappings that try to override `scope` in the `authorization_code` flow. Property mappings that inject **other** claim names work fine. To grant per-tool scopes to a Claude.ai or ChatGPT custom connector that doesn't expose scope customization, configure your IdP to return the per-tool scopes under `mcp_tool_scopes` instead of overriding `scope`.
+
+| Provider | Where to configure |
+|:---------|:--------------------|
+| Authentik | Customization → Property Mappings → new "Scope Mapping" returning `{"mcp_tool_scopes": "tool:foo:read tool:bar:write"}`; bind to the OAuth2/OpenID provider |
+| Keycloak (< 26.5) | Client → Client Scopes → Mappers → new "Hardcoded claim" or "Script Mapper" emitting `mcp_tool_scopes` |
+| Zitadel | Project → Roles + Action returning `{"mcp_tool_scopes": "..."}` from a pre-token script |
+
+Keycloak ≥ 26.5 ships native MCP integration support; check its release notes before falling back to a custom claim.
+
+### Bypass flag
+
+For environments where no custom claim can be injected (managed services, restricted IdPs), set `MCP_AUTH_DISABLE_SCOPE_CHECKS=true` to bypass scope enforcement entirely.
+
+| Variable | Default | Effect |
+|:---------|:--------|:-------|
+| `MCP_AUTH_DISABLE_SCOPE_CHECKS` | `false` | When `true`, both `withRequiredScopes` (declared `auth: [...]`) and `checkScopes` (runtime-computed scopes inside handlers) early-return after the auth-context presence check. Token signature, audience, issuer, and expiry validation remain intact. |
+
+The flag bypasses **both** declared `auth: [...]` enforcement and runtime `checkScopes` calls — including tenant isolation patterns like `team:${input.teamId}:write`. Naming is deliberate: this disables all scope checks, not just per-tool ones. Applies to `MCP_AUTH_MODE=jwt` and `MCP_AUTH_MODE=oauth` (no effect under `none`).
+
+A `WARNING`-level log is emitted at startup whenever the flag is active so operators don't lose track of it. Combine with server-side ACLs (path filters, allowlists, tenant rules) — without an in-handler ACL, every authenticated user effectively has every scope.
 
 ---
 
@@ -107,7 +141,8 @@ Set via `MCP_AUTH_MODE` environment variable.
 | `GET /healthz` | No |
 | `GET /mcp` | No |
 | `POST /mcp` | Yes (when auth enabled) |
-| `OPTIONS /mcp` | Yes (when auth enabled) |
+| `DELETE /mcp` | Yes (when auth enabled) — session termination |
+| `OPTIONS /mcp` | No (handled by CORS middleware before auth) |
 
 **CORS:** Set `MCP_ALLOWED_ORIGINS` to a comma-separated list of allowed origins, or `*` for open access.
 
@@ -121,10 +156,11 @@ Set via `MCP_AUTH_MODE` environment variable.
 
 ### tenantId sources
 
-| Transport | Source | Value |
-|:----------|:-------|:------|
-| HTTP with auth | JWT `tid` claim | Auto-propagated from token |
-| Stdio | Hardcoded default | `'default'` |
+| Mode | Source | Value |
+|:-----|:-------|:------|
+| Stdio (any auth mode) | Hardcoded default | `'default'` |
+| HTTP + `MCP_AUTH_MODE=none` | Hardcoded default | `'default'` (single-tenant by design) |
+| HTTP + `MCP_AUTH_MODE=jwt`/`oauth` | JWT `tid` claim | Auto-propagated from token; `undefined` if absent (fail-closed) |
 
 ### Tenant ID validation rules
 
@@ -139,16 +175,16 @@ Set via `MCP_AUTH_MODE` environment variable.
 ```ts
 handler: async (input, ctx) => {
   // Automatically scoped to ctx.tenantId — no manual prefixing
-  await ctx.state.set('item:123', { name: 'Widget', count: 42 });
-  const item = await ctx.state.get<Item>('item:123');
-  await ctx.state.delete('item:123');
+  await ctx.state.set('item/123', { name: 'Widget', count: 42 });
+  const item = await ctx.state.get<Item>('item/123');
+  await ctx.state.delete('item/123');
 
-  const page = await ctx.state.list('item:', { cursor, limit: 20 });
+  const page = await ctx.state.list('item/', { cursor, limit: 20 });
   // page: { items: Array<{ key, value }>, cursor?: string }
 },
 ```
 
-`ctx.state` throws `McpError(InvalidRequest)` if `tenantId` is missing. In stdio mode, `tenantId` defaults to `'default'` so `ctx.state` works without auth.
+`ctx.state` throws `McpError(InvalidRequest)` if `tenantId` is missing. Stdio (any auth mode) and HTTP+`MCP_AUTH_MODE=none` default `tenantId` to `'default'` so `ctx.state` works without forcing operators to mint tokens. HTTP+`jwt`/`oauth` deliberately fails closed when the token lacks a `tid` claim — distinct authenticated callers must not silently share state.
 
 ---
 
@@ -159,9 +195,9 @@ Available on `ctx.auth` inside handlers (when auth is enabled):
 ```ts
 interface AuthContext {
   clientId: string;        // Required — 'cid' or 'client_id' JWT claim
-  scopes: string[];        // Required — derived from 'scp' or 'scope' claim
+  scopes: string[];        // Required — union of 'scp', 'scope', and 'mcp_tool_scopes' claims
   sub: string;             // Required — 'sub' claim; falls back to clientId when absent
-  token: string;           // Required — raw JWT or OAuth bearer token string
+  token?: string;          // Optional — raw JWT or OAuth bearer token string (present when transport provides it)
   tenantId?: string;       // Optional — 'tid' claim; present only for multi-tenant tokens
 }
 ```

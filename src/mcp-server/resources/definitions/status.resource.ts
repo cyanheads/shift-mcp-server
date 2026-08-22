@@ -4,7 +4,7 @@
  */
 
 import { resource } from '@cyanheads/mcp-ts-core';
-import { formatWorkersTable, workers } from '@/mcp-server/tools/definitions/worker-store.js';
+import { formatWorkersTable, workers } from '@/services/worker-store/worker-store.js';
 
 export const statusResource = resource('shift://status', {
   name: 'Active Workers',
@@ -21,7 +21,7 @@ export const statusResource = resource('shift://status', {
 
   format: (text, meta) => [{ uri: meta.uri.href, text: text as string, mimeType: meta.mimeType }],
 
-  list: async () => ({
+  list: () => ({
     resources: [{ uri: 'shift://status', name: 'Active Workers', mimeType: 'text/markdown' }],
   }),
 });

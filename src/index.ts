@@ -10,6 +10,8 @@ import { checkIn } from './mcp-server/tools/definitions/check-in.tool.js';
 import { checkOut } from './mcp-server/tools/definitions/check-out.tool.js';
 
 await createApp({
+  name: 'shift-mcp-server',
+  title: 'shift-mcp-server',
   tools: [checkIn, checkOut],
   resources: [statusResource],
 });

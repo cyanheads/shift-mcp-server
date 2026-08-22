@@ -4,15 +4,17 @@
 # This stage installs all dependencies (including dev), builds the TypeScript
 # source code into JavaScript, and prepares the production assets.
 # ==============================================================================
-FROM oven/bun:1 AS build
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.0 AS build
 
 WORKDIR /usr/src/app
 
 # Copy dependency manifests for optimized layer caching
 COPY package.json bun.lock ./
 
-# Install all dependencies (including dev dependencies for building)
-RUN bun install --frozen-lockfile
+# Install all dependencies (including dev dependencies for building).
+# The BuildKit cache mount persists Bun's global package cache across builds.
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile --ignore-scripts
 
 # Copy the rest of the source code
 COPY . .
@@ -28,7 +30,7 @@ RUN bun run build
 # application. It uses a slim base image and only includes production
 # dependencies and build artifacts.
 # ==============================================================================
-FROM oven/bun:1-slim AS production
+FROM oven/bun:1.4.0-slim AS production
 
 WORKDIR /usr/src/app
 
@@ -37,24 +39,33 @@ WORKDIR /usr/src/app
 ENV NODE_ENV=production
 
 # OCI image metadata (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
+ARG APP_VERSION
 LABEL org.opencontainers.image.title="shift-mcp-server"
 LABEL org.opencontainers.image.description="Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously."
-LABEL org.opencontainers.image.source="https://github.com/cyanheads/shift-mcp-server"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.version="${APP_VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/cyanheads/shift-mcp-server"
 
 # Copy dependency manifests
 COPY package.json bun.lock ./
 
 # Install only production dependencies, ignoring any lifecycle scripts (like 'prepare')
 # that are not needed in the final production image.
-RUN bun install --production --frozen-lockfile --ignore-scripts
+# `--omit=peer` drops the framework's optional peer tiers (test runner, service
+# SDKs, parsers) that Bun would otherwise auto-install. Anything this server
+# actually imports belongs in its own `dependencies`, so nothing needed at
+# runtime is lost. The OTEL step below carries the same flag — without it, that
+# install re-resolves the graph and pulls every optional peer back in.
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --production --omit=peer --frozen-lockfile --ignore-scripts
 
 # Conditionally install OpenTelemetry optional peer dependencies (Tier 3).
 # These are not bundled by default to keep the base image lean. Enable at build time
 # with: docker build --build-arg OTEL_ENABLED=true
 ARG OTEL_ENABLED=true
-RUN if [ "$OTEL_ENABLED" = "true" ]; then \
-      bun add @hono/otel \
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    if [ "$OTEL_ENABLED" = "true" ]; then \
+      bun add --omit=dev --omit=peer --ignore-scripts @hono/otel \
         @opentelemetry/instrumentation-http \
         @opentelemetry/exporter-metrics-otlp-http \
         @opentelemetry/exporter-trace-otlp-http \
@@ -94,6 +105,9 @@ ENV MCP_FORCE_CONSOLE_LOGGING="true"
 
 # Expose the port the server listens on
 EXPOSE ${MCP_HTTP_PORT}
+
+# Health check using a bun-native fetch (slim image ships no curl/wget)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD bun -e "fetch('http://localhost:'+(process.env.MCP_HTTP_PORT??'3010')+'/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # The command to start the server
 CMD ["bun", "run", "dist/index.js"]

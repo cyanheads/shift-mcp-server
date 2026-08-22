@@ -28,7 +28,7 @@ The server runs entirely in-memory. No persistence. State clears on server resta
 ## Requirements
 
 - In-memory storage only — no database, no filesystem writes
-- Worker IDs: 6-character uppercase alphanumeric, randomly generated, unique across active sessions
+- Worker IDs: 6-character uppercase alphanumeric, randomly generated, unique across active sessions. `WORKER_ID_PATTERN` (`/^[A-Z0-9]{6}$/`) validates the input on both tools, so a malformed ID is rejected before the handler runs
 - Check-in response embeds hardcoded coordination instructions (the delivery mechanism for multi-agent ground rules)
 - Resource updates: send `notifications/resources/updated` on every check-in, update, and check-out so subscribed clients stay current
 - No auth — this is a local coordination tool, not a shared service
@@ -37,6 +37,8 @@ The server runs entirely in-memory. No persistence. State clears on server resta
 
 - **No file overlap detection.** Agents see the active workers table with declared files/globs on every check-in. They're intelligent enough to recognize overlaps themselves while working in the codebase — no need for the server to compute or inject warnings.
 - **No session TTL / reaping.** State is in-memory only and clears on server restart. A crashed agent's session persists until restart, which is acceptable — this is a coordination signal, not a source of truth.
+- **Check-out is idempotent.** An unknown or already-removed worker ID succeeds silently. Ending a session that is already ended is the caller's intended end state, and erroring on it forces a retry loop on the one call an exiting agent makes last.
+- **The active-workers table prints the full ISO 8601 timestamp**, not `HH:MM`. A worker who checked in yesterday reads as current under `HH:MM`, and the framework's `format-parity` lint requires every output field — nested array fields included — to appear verbatim in the rendered text.
 
 ## Tool Detail
 
@@ -57,7 +59,7 @@ The server runs entirely in-memory. No persistence. State clears on server resta
 
 - No `workerId` → generate new 6-char ID (retry on collision), create session, add to map
 - With valid `workerId` → patch session: only provided fields are updated, omitted fields are preserved, original `checkedInAt` is always preserved
-- With invalid `workerId` → error: "Worker ID {X} not found. Omit workerId to start a new session." Include the active workers table so the agent can self-identify or start fresh.
+- With invalid `workerId` → `ctx.fail('unknown_worker', …)`, code `NotFound`: "Worker ID {X} not found. Omit workerId to start a new session." The active workers table is embedded in the message so the agent can self-identify or start fresh, and the declared contract puts `data.reason` and a recovery hint on the wire.
 
 **Response format** (returned as formatted text content):
 
@@ -77,8 +79,8 @@ The server runs entirely in-memory. No persistence. State clears on server resta
 ## Active Workers
 | Worker | Checked In | Working On | Files |
 |--------|------------|------------|-------|
-| A7K2M1 | 14:30 | Adding rate limiting to API endpoints | src/middleware/rate-limit.ts, src/api/router.ts |
-| B3X9P2 | 14:20 | Refactoring auth middleware | src/auth/*.ts |
+| B3X9P2 | 2026-03-23T14:20:00Z | Refactoring auth middleware | src/auth/*.ts |
+| A7K2M1 | 2026-03-23T14:30:00Z | Adding rate limiting to API endpoints | src/middleware/rate-limit.ts, src/api/router.ts |
 ```
 
 When no other workers are active:
@@ -103,7 +105,7 @@ You're the first to check in. No other agents are currently active.
 **Behavior:**
 
 - Valid `workerId` → remove from map, trigger resource update notification
-- Invalid `workerId` → error: "Worker ID {X} not found. It may have already been checked out." Include the active workers table so the agent can self-identify or confirm checkout.
+- Unknown or already-removed `workerId` → succeed silently, no notification
 
 **Response:**
 
@@ -122,8 +124,8 @@ Summary: Added rate limiter middleware with per-route configuration and tests.
 ## Active Workers (2)
 | Worker | Checked In | Working On | Files |
 |--------|------------|------------|-------|
-| A7K2M1 | 14:30 | Adding rate limiting | src/middleware/rate-limit.ts, src/api/router.ts |
-| B3X9P2 | 14:20 | Refactoring auth middleware | src/auth/*.ts |
+| B3X9P2 | 2026-03-23T14:20:00Z | Refactoring auth middleware | src/auth/*.ts |
+| A7K2M1 | 2026-03-23T14:30:00Z | Adding rate limiting | src/middleware/rate-limit.ts, src/api/router.ts |
 ```
 
 When empty:
@@ -139,7 +141,7 @@ No agents are currently active.
 
 ## Services
 
-None. The in-memory `Map<string, WorkerSession>` is simple enough to live directly in the tool handlers or as a plain module-level store. No service class needed.
+No service class. The in-memory `Map<string, WorkerSession>` is a plain module-level store at `src/services/worker-store/worker-store.ts`, alongside ID generation and the table formatter. It sits under `src/services/` rather than beside one of the tools because both tools and the resource read it.
 
 ## Data Model
 
@@ -156,7 +158,7 @@ Storage: `Map<string, WorkerSession>` keyed by `workerId`.
 
 ## Config
 
-No server-specific env vars. Uses framework defaults only (`MCP_TRANSPORT_TYPE`, etc.).
+No server-specific env vars. Framework defaults only, with one deployment override: the Docker image sets `MCP_SESSION_MODE=stateless` (the framework default is `auto`, which resolves to `stateful`) because no handler needs a session.
 
 ## Implementation Order
 

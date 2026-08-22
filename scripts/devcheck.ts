@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -67,7 +67,7 @@ const createColor = (open: string, close: string, closeRe: RegExp) => (str: stri
   return open + `${str}`.replace(closeRe, close + open) + close;
 };
 
-const esc = (code: string) => new RegExp(code.replace('[', '\\['), 'g');
+const esc = (code: string) => new RegExp(code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
 const c = {
   bold: createColor('\x1b[1m', '\x1b[22m', esc('\x1b[22m')),
   dim: createColor('\x1b[2m', '\x1b[22m', esc('\x1b[22m')),
@@ -229,6 +229,15 @@ const Shell = {
 
 const ROOT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * Whether the project root is inside a git repository. The git-dependent checks
+ * (TODOs/FIXMEs, Tracked Secrets, Framework Antipatterns) shell out to
+ * `git grep`/`git ls-files`, which exit 128 — not a real finding — when there's
+ * no repo. A fresh `init` scaffold has no `.git` until the user runs `git init`,
+ * so those checks guard on this and skip cleanly instead of failing.
+ */
+const isGitRepo = (): boolean => existsSync(path.join(ROOT_DIR, '.git'));
+
 // ── Project-local config (devcheck.config.json) ─────────────────────
 
 interface DevcheckConfig {
@@ -238,6 +247,12 @@ interface DevcheckConfig {
   };
   outdated?: {
     allowlist?: string[];
+  };
+  skillsSync?: {
+    ignore?: string[];
+  };
+  skillVersions?: {
+    ignore?: string[];
   };
 }
 
@@ -350,6 +365,7 @@ const ALL_CHECKS: Check[] = [
     flag: '--no-todos',
     canFix: false,
     getCommand: (ctx) => {
+      if (!isGitRepo()) return null; // no repo to grep — fresh scaffold before `git init`
       // git grep -n (line number) -E (extended regex) -i (case-insensitive)
       const baseCmd = ['git', 'grep', '-nEi', '\\b(TODO|FIXME)\\b'];
       // Exclude files where TODO/FIXME appears as prose or intentional stubs
@@ -382,18 +398,21 @@ const ALL_CHECKS: Check[] = [
     flag: '--no-secrets',
     canFix: false,
     // Check if common sensitive files are tracked by git.
-    getCommand: () => [
-      'git',
-      'ls-files',
-      '*.env*',
-      '**/.npmrc',
-      '**/.netrc',
-      '**/credentials.json',
-      '**/*.pem',
-      '**/*.key',
-      '**/secret*',
-      '**/.htpasswd',
-    ],
+    getCommand: () => {
+      if (!isGitRepo()) return null; // no repo — `git ls-files` would exit 128, not a finding
+      return [
+        'git',
+        'ls-files',
+        '*.env*',
+        '**/.npmrc',
+        '**/.netrc',
+        '**/credentials.json',
+        '**/*.pem',
+        '**/*.key',
+        '**/secret*',
+        '**/.htpasswd',
+      ];
+    },
     // Success if output is empty OR only contains safe patterns.
     isSuccess: (result, _mode) => {
       if (result.exitCode !== 0) return false;
@@ -411,7 +430,133 @@ const ALL_CHECKS: Check[] = [
     canFix: false,
     getCommand: () => ['bun', 'run', 'scripts/lint-mcp.ts'],
     tip: (c) =>
-      `Fix definition errors reported above. See ${c.bold('validateDefinitions()')} docs for rule details.`,
+      `Fix definition errors above — each diagnostic links to its rule in ${c.bold('skills/api-linter/SKILL.md')}.`,
+  },
+  {
+    name: 'Packaging',
+    flag: '--no-packaging',
+    canFix: false,
+    // Validates env var alignment between manifest.json (MCPB bundle) and
+    // server.json (MCP Registry), plus plugin marketplace manifests (#240).
+    // Runs when manifest.json OR any plugin manifest is present; skipped cleanly
+    // when none exist — consumers on an HTTP-only deploy are unaffected.
+    getCommand: () => {
+      const hasManifest = existsSync(path.join(ROOT_DIR, 'manifest.json'));
+      const hasPluginManifest =
+        existsSync(path.join(ROOT_DIR, '.claude-plugin/plugin.json')) ||
+        existsSync(path.join(ROOT_DIR, '.codex-plugin/plugin.json')) ||
+        existsSync(path.join(ROOT_DIR, '.codex-plugin/mcp.json'));
+      if (!hasManifest && !hasPluginManifest) return null;
+      return ['bun', 'run', 'scripts/lint-packaging.ts'];
+    },
+    tip: (c) =>
+      `Align env var names between ${c.bold('manifest.json')} ${c.bold('mcp_config.env')} and ${c.bold('server.json')} stdio package ${c.bold('environmentVariables[]')}.`,
+  },
+  {
+    name: 'Framework Antipatterns',
+    flag: '--no-framework-antipatterns',
+    canFix: false,
+    // Runs `git grep` per rule; skip cleanly without a repo (fresh scaffold before `git init`).
+    getCommand: () => {
+      if (!isGitRepo()) return null;
+      return ['bun', 'run', 'scripts/check-framework-antipatterns.ts'];
+    },
+    tip: (c) =>
+      `Remove the flagged SDK-coupling shortcut. See ${c.bold('scripts/check-framework-antipatterns.ts')} for rule rationale.`,
+  },
+  {
+    name: 'Dependency Specifiers',
+    flag: '--no-dep-specifiers',
+    canFix: false,
+    // Rejects floating specifiers (latest/*/dist-tags) in package.json + the
+    // bun.lock workspaces map (#246). Static and local — no network, no git —
+    // so it runs in the default and --fast passes. Shipped to consumers via
+    // package.json `files:`; reads package.json/bun.lock directly, no guard.
+    getCommand: () => ['bun', 'run', 'scripts/check-dependency-specifiers.ts'],
+    tip: (c) =>
+      `Pin the flagged dep to a concrete range; after ${c.bold('bun update --latest')} run a plain ${c.bold('bun install')} to reconcile ${c.bold('bun.lock')}.`,
+  },
+  {
+    name: 'Open-Indexed Interfaces',
+    flag: '--no-open-index',
+    canFix: false,
+    // Framework-only AST check (#123): flags interfaces mixing named members with an
+    // open `[key: string]: unknown|any` index signature that lack an opt-out comment.
+    // Not shipped in package.json `files:`, so the existence guard skips it cleanly in
+    // consumer projects — the pattern is common and legitimate in consumer code.
+    getCommand: () => {
+      if (!existsSync(path.join(ROOT_DIR, 'scripts/audit-open-index-signatures.ts'))) return null;
+      return ['bun', 'run', 'scripts/audit-open-index-signatures.ts'];
+    },
+    tip: (c) =>
+      `Add ${c.bold('// allow open-indexed-named: <rationale>')} above the index signature, or use explicit fields. See ${c.bold('scripts/audit-open-index-signatures.ts')}.`,
+  },
+  {
+    name: 'Docs Sync',
+    flag: '--no-docs-sync',
+    canFix: false,
+    getCommand: () => ['bun', 'run', 'scripts/check-docs-sync.ts'],
+    tip: (c) =>
+      `Edit both files together, or run ${c.bold('cp CLAUDE.md AGENTS.md')} (or reverse) to resync.`,
+  },
+  {
+    name: 'Skills Sync',
+    flag: '--no-skills-sync',
+    canFix: false,
+    // Compares canonical skills/ against local mirrors (.agents/skills, .claude/skills).
+    // Skipped when skills/ or both mirrors are absent (non-mirrored projects).
+    // Drift is demoted to a warning via isSuccess — intentional ignores live in
+    // devcheck.config.json `skillsSync.ignore`.
+    getCommand: () => {
+      const hasSkills = existsSync(path.join(ROOT_DIR, 'skills'));
+      const hasMirrors =
+        existsSync(path.join(ROOT_DIR, '.agents/skills')) ||
+        existsSync(path.join(ROOT_DIR, '.claude/skills'));
+      if (!hasSkills || !hasMirrors) return null;
+      return ['bun', 'run', 'scripts/check-skills-sync.ts'];
+    },
+    isSuccess: (result) => {
+      if (result.exitCode === 0) return true;
+      const firstLine = result.stdout.split('\n')[0]?.trim() || 'Skills mirrors have drifted.';
+      return { success: true, warning: firstLine };
+    },
+    tip: (c) =>
+      `Propagate ${c.bold('skills/')} to ${c.bold('.agents/skills/')} and ${c.bold('.claude/skills/')}, or add entries to ${c.bold('devcheck.config.json')} ${c.bold('skillsSync.ignore')}.`,
+  },
+  {
+    name: 'Skill Versions',
+    flag: '--no-skill-versions',
+    canFix: false,
+    // Flags skills/<name>/SKILL.md body changes (vs HEAD) that lack a metadata.version
+    // bump (#99). Skipped when skills/ is absent. Drift is demoted to a warning via
+    // isSuccess — the typo/whitespace carve-out lives in devcheck.config.json
+    // `skillVersions.ignore`.
+    getCommand: () => {
+      if (!existsSync(path.join(ROOT_DIR, 'skills'))) return null;
+      return ['bun', 'run', 'scripts/check-skill-versions.ts'];
+    },
+    isSuccess: (result) => {
+      if (result.exitCode === 0) return true;
+      const firstLine =
+        result.stdout.split('\n')[0]?.trim() || 'Skill bodies changed without a version bump.';
+      return { success: true, warning: firstLine };
+    },
+    tip: (c) =>
+      `Bump ${c.bold('metadata.version')} in the changed ${c.bold('SKILL.md')}, or add it to ${c.bold('devcheck.config.json')} ${c.bold('skillVersions.ignore')}.`,
+  },
+  {
+    name: 'Changelog Sync',
+    flag: '--no-changelog-sync',
+    canFix: false,
+    // --check exits non-zero if CHANGELOG.md drifts from changelog/*.md.
+    // Skipped cleanly when the directory-based changelog isn't in use — CHANGELOG.md
+    // alone is a supported configuration (runtime-only consumers, opt-out per #41).
+    getCommand: () => {
+      if (!existsSync(path.join(ROOT_DIR, 'changelog'))) return null;
+      return ['bun', 'run', 'scripts/build-changelog.ts', '--check'];
+    },
+    tip: (c) =>
+      `Edit the per-version file in ${c.bold('changelog/')} and run ${c.bold('bun run changelog:build')} to regenerate ${c.bold('CHANGELOG.md')}.`,
   },
   {
     name: 'Biome',
@@ -480,6 +625,16 @@ const ALL_CHECKS: Check[] = [
       const output = result.stdout;
       if (output.includes('0 vulnerabilities found')) return true;
 
+      // Detect audit failures (connection errors, registry issues, etc.)
+      // If the output doesn't look like a valid audit response, warn rather than silently passing.
+      const looksLikeAuditOutput = /vulnerabilit|severity|advisori/i.test(output);
+      if (!looksLikeAuditOutput) {
+        return {
+          success: true,
+          warning: `Audit command failed (exit ${result.exitCode}) — could not reach registry. Output: ${output.slice(0, 200).trim() || '(empty)'}`,
+        };
+      }
+
       // Pass if only low/moderate severity
       const hasHighOrCritical = /high|critical/i.test(output);
       if (!hasHighOrCritical) return true;
@@ -524,27 +679,51 @@ const ALL_CHECKS: Check[] = [
       const output = result.stdout.trim();
       if (result.exitCode !== 0 && !output.includes('|')) return false;
 
-      // Parse the tabular output. Package lines contain '|' separators.
-      // Filter out header/separator rows and allowlisted packages.
+      // Parse the tabular output. `bun outdated` emits markdown-style rows
+      // (`| col1 | col2 | ... |`), so split('|') yields an empty leading cell —
+      // package data starts at index [1]. Strip the trailing `(dev|peer|prod|optional)`
+      // workspace-type marker so the allowlist takes the bare package name.
       const lines = output.split('\n');
+      const stripWorkspaceMarker = (cell: string): string =>
+        cell.replace(/\s*\((?:dev|peer|prod|optional)\)$/, '');
       const packageLines = lines.filter((line) => {
         if (!line.includes('|')) return false;
         // Skip table chrome: header row and separator (e.g., "---")
-        const firstCell = line.split('|')[0]?.trim() ?? '';
+        const firstCell = line.split('|')[1]?.trim() ?? '';
         if (!firstCell || firstCell === 'Package' || /^-+$/.test(firstCell)) return false;
         return true;
       });
 
-      // Check if every outdated package is in the allowlist
+      // A row is a real finding only if it's neither allowlisted, a peer range,
+      // nor a version held back by bunfig's `minimumReleaseAge` supply-chain guard.
       const unexpected = packageLines.filter((line) => {
-        const pkgName = line.split('|')[0]?.trim() ?? '';
-        return !OUTDATED_ALLOWLIST.has(pkgName);
+        const cells = line.split('|').map((cell) => cell.trim());
+        const rawName = cells[1] ?? '';
+        const pkgName = stripWorkspaceMarker(rawName);
+        if (OUTDATED_ALLOWLIST.has(pkgName)) return false;
+
+        // A peerDependency range declares the *lowest* version supported, not
+        // the version to track — widening it as upstream publishes only narrows
+        // what consumers may install. Currency for the versions actually
+        // exercised is enforced through the matching devDependency row.
+        if (rawName.endsWith('(peer)')) return false;
+
+        // `Update` is the newest version installable under the declared range;
+        // `Latest` ignores the range. Update === Current means there is nothing
+        // to adopt — either `minimumReleaseAge` is holding a fresh publish, or
+        // the range deliberately caps below latest (an exact pin, `^12` against
+        // 13.0.1). Crossing that cap is a deliberate range change, i.e.
+        // maintenance work rather than a gate failure. The gate fails on what
+        // `bun update` would actually change: being behind within the range.
+        const current = cells[2] ?? '';
+        const update = (cells[3] ?? '').replace(/\*/g, '').trim();
+        return !(current !== '' && update === current);
       });
 
       return unexpected.length === 0;
     },
     tip: (c) =>
-      `Run ${c.bold(`${PM_CMD} update`)} to upgrade dependencies. Configure allowlist in ${c.bold('devcheck.config.json')}.`,
+      `Run ${c.bold(`${PM_CMD} update`)} to upgrade; the ${c.bold('maintenance')} skill then investigates changelogs and adopts upstream changes. Configure allowlist in ${c.bold('devcheck.config.json')}.`,
   },
 ];
 
@@ -847,6 +1026,19 @@ async function runCheck(check: Check, ctx: AppContext): Promise<CommandResult> {
   const startTime = performance.now();
   const result = await Shell.exec(command, { cwd: ctx.rootDir });
   const duration = Math.round(performance.now() - startTime);
+
+  // Bun's node-shim (via `bun run`) emits "Registry URL must be" errors when
+  // depcheck encounters `cloudflare:*` virtual-module specifiers in Workers
+  // tests. depcheck.ignores already filters them from the report — strip the
+  // cosmetic stderr so the summary stays clean.
+  if (name === 'Unused Dependencies' && result.stderr) {
+    result.stderr = result.stderr
+      .replace(
+        /error: Registry URL must be http:\/\/ or https:\/\/\nReceived: "cloudflare:[^"]*"\n?/g,
+        '',
+      )
+      .trim();
+  }
 
   const finalResult: CommandResult = {
     ...baseResult,
