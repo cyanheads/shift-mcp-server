@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.7](changelog/0.1.x/0.1.7.md) — 2026-09-20
+
+Rebuilt on @cyanheads/mcp-ts-core ^0.13.6 (from ^0.12.3): invalid arguments reject with a structured InvalidParams envelope and a recovery hint, common argument-shape mismatches are repaired before validation, and the framework skill tree moves to framework-skills/.
+
 ## [0.1.6](changelog/0.1.x/0.1.6.md) — 2026-08-22
 
 Rebuilt on @cyanheads/mcp-ts-core ^0.12.3 (from ^0.1.26): every HTTP endpoint now serves protocol revision 2026-07-28, tool inputs are strict, the advertised outputSchema declares the error envelope, and shift://status updates reach subscribers on both protocol eras.

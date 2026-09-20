@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "shift-mcp-server",
   "display_name": "shift-mcp-server",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
   "author": {
     "name": "cyanheads",

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "shift-mcp-server",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
   "author": {
     "name": "cyanheads",
