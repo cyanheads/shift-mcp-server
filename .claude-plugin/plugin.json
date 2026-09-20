@@ -1,13 +1,26 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "shift-mcp-server",
   "version": "0.1.6",
   "description": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
   "author": {
-    "name": "cyanheads"
+    "name": "cyanheads",
+    "email": "casey@caseyjhand.com",
+    "url": "https://github.com/cyanheads"
   },
   "homepage": "https://github.com/cyanheads/shift-mcp-server#readme",
   "repository": "https://github.com/cyanheads/shift-mcp-server",
   "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "multi-agent",
+    "coordination",
+    "ai-agents",
+    "agent-coordination",
+    "claude-code"
+  ],
   "mcpServers": {
     "shift-mcp-server": {
       "command": "npx",

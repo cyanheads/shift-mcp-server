@@ -12,6 +12,11 @@ import { checkOut } from './mcp-server/tools/definitions/check-out.tool.js';
 await createApp({
   name: 'shift-mcp-server',
   title: 'shift-mcp-server',
+  /**
+   * No tool calls `ctx.requestInput`, so the HTTP transport has nothing to keep
+   * per session. `MCP_SESSION_MODE` still wins when it carries a meaningful value.
+   */
+  sessionMode: 'stateless',
   tools: [checkIn, checkOut],
   resources: [statusResource],
 });

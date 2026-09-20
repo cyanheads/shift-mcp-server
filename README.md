@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.1.6-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.0.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/shift-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/shift-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.0%2B-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.1.6-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.0.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/shift-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/shift-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.0%2B-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -21,49 +21,54 @@
 
 ---
 
-## Tools
+## Overview
 
-Two tools bracketing a working session — one to announce it, one to end it:
+Coordination layer for multiple AI agents working on the same codebase at once. Check in with a gist of your task and the files you expect to touch, see the full roster of active peers, and check out when finished — all from any MCP client. Runs as a stdio process or a local Streamable HTTP server.
 
-| Tool Name | Description |
-|:----------|:------------|
+### Tools
+
+| Tool | Description |
+|:---|:---|
 | `shift_check_in` | Register or update a worker session. Returns a worker ID, the coordination protocol, and the active peers. |
 | `shift_check_out` | End a working session and remove it from the active worker list. |
 
-### `shift_check_in`
+### Resources
 
-Called at the start of every working session, and again whenever the scope changes.
+| Resource | Description |
+|:---|:---|
+| `shift://status` | All currently active workers with their gists, declared files, and check-in timestamps. |
 
-- Takes a `gist` of the current work plus optional `files` the agent expects to modify
-- Returns a 6-character worker ID, the coordination protocol, and the full active-workers table
-- Pass an existing `workerId` to update the session — patch semantics, so omitted fields and the original check-in timestamp are preserved
-- An unknown `workerId` fails with `reason: "unknown_worker"` and embeds the active-workers table so the caller can self-identify or start fresh
+The same roster is returned inline by `shift_check_in`; subscribers to `shift://status` also receive `notifications/resources/updated` on every check-in, session update, and check-out.
+
+## Capability reference
+
+### `shift_check_in` <sub>tool</sub>
+
+- Required `gist` (what you're working on) plus optional `files` you expect to modify
+- Optional `workerId` (6-char uppercase alphanumeric) re-enters an existing session with patch semantics — omitted fields and the original `checkedInAt` are preserved
+- Output carries your session plus `activeWorkers`, the full roster of every checked-in session
+- An unrecognized `workerId` fails with typed reason `unknown_worker` (NotFound) — recovery: omit `workerId` to start fresh, or reuse an ID from the active-workers table embedded in the error
+- Every check-in or update calls `notifyResourceUpdated('shift://status')`
 
 ---
 
-### `shift_check_out`
+### `shift_check_out` <sub>tool</sub>
 
-Ends a working session.
+- Required `workerId` (6-char uppercase alphanumeric), optional one-sentence `summary`
+- Idempotent — an unknown or already-checked-out `workerId` succeeds silently rather than erroring
+- Notifies `shift://status` subscribers only when a session actually existed and was removed
 
-- Takes a `workerId` and an optional one-sentence `summary`
-- Idempotent — an unknown or already-checked-out ID succeeds silently
+---
 
-## Resources
+### `shift://status` <sub>resource</sub>
 
-| Type | Name | Description |
-|:---|:---|:---|
-| Resource | `shift://status` | All currently active workers with their gists, declared files, and check-in timestamps. |
-
-The same roster is returned inline by `shift_check_in`, so tool-only clients see it without reading the resource. Subscribers to `shift://status` receive `notifications/resources/updated` on every check-in, session update, and check-out.
+- Returns `text/markdown` — the active-workers table, or "No agents are currently active." when the roster is empty
+- `workerId` comes from `shift_check_in`
+- Updates push via `notifications/resources/updated` on every check-in, session update, and check-out
 
 ## Features
 
-Built on [`@cyanheads/mcp-ts-core`](https://www.npmjs.com/package/@cyanheads/mcp-ts-core):
-
-- Declarative tool and resource definitions — one file per primitive, framework handles registration and validation
-- Unified error handling — handlers throw, framework catches, classifies, and formats
-- Structured logging with request-scoped context and optional OpenTelemetry tracing
-- STDIO and Streamable HTTP transports, serving MCP protocol revisions 2025 and 2026-07-28
+Built on [`@cyanheads/mcp-ts-core`](https://github.com/cyanheads/mcp-ts-core): stdio and Streamable HTTP transports, pluggable auth (`none` / `jwt` / `oauth`), swappable storage (`in-memory`, `filesystem`, `Supabase`, `Cloudflare KV/R2/D1`), structured logging with optional OpenTelemetry tracing.
 
 Coordination-specific:
 
@@ -143,7 +148,7 @@ MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 bun run start:http
 
 ### Prerequisites
 
-- [Bun v1.3.0](https://bun.sh/) or higher (or Node.js v24+).
+- [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
 - No API keys, accounts, or external services.
 
 ### Installation
@@ -182,7 +187,7 @@ No server-specific environment variables. Framework defaults worth knowing:
 | `MCP_TRANSPORT_TYPE` | Transport: `stdio` or `http`. | `stdio` |
 | `MCP_HTTP_PORT` | Port for the HTTP server. | `3010` |
 | `MCP_HTTP_HOST` | Hostname for the HTTP server. | `127.0.0.1` |
-| `MCP_SESSION_MODE` | HTTP session handling: `auto`, `stateful`, or `stateless`. `auto` resolves to `stateful`; this server runs `stateless`, since no handler needs a session. | `auto` |
+| `MCP_SESSION_MODE` | HTTP session handling: `auto`, `stateful`, or `stateless`. The server declares `stateless` in `createApp()`, since no handler needs a session; setting this variable overrides that. | `stateless` |
 | `MCP_AUTH_MODE` | Auth mode: `none`, `jwt`, or `oauth`. | `none` |
 | `MCP_LOG_LEVEL` | Log level (RFC 5424). | `info` |
 | `LOGS_DIR` | Directory for log files (Node.js only). | `<project-root>/logs` |
@@ -238,6 +243,15 @@ See [`CLAUDE.md`/`AGENTS.md`](./CLAUDE.md) for development guidelines and archit
 - Use `ctx.log` for request-scoped logging, `ctx.state` for tenant-scoped storage
 - Register new tools and resources in `src/index.ts`
 - `format()` must render every field in the output schema — both client surfaces carry the same data
+
+## Contributing
+
+Issues are welcome. Run checks and tests before submitting:
+
+```sh
+bun run devcheck
+bun run test
+```
 
 ## License
 
