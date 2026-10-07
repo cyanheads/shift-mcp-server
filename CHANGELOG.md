@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.8](changelog/0.1.x/0.1.8.md) — 2026-10-07
+
+Updates mcp-ts-core to 0.13.13, fixes registry HTTP startup, and refreshes packaging and build tooling.
+
 ## [0.1.7](changelog/0.1.x/0.1.7.md) — 2026-09-20
 
 Rebuilt on @cyanheads/mcp-ts-core ^0.13.6 (from ^0.12.3): invalid arguments reject with a structured InvalidParams envelope and a recovery hint, common argument-shape mismatches are repaired before validation, and the framework skill tree moves to framework-skills/.
