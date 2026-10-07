@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.1.7-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.0.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/shift-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/shift-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.0%2B-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.1.7-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.2.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/shift-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/shift-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.2%2B-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -44,11 +44,9 @@ The same roster is returned inline by `shift_check_in`; subscribers to `shift://
 
 ### `shift_check_in` <sub>tool</sub>
 
-- Required `gist` (what you're working on) plus optional `files` you expect to modify
-- Optional `workerId` (6-char uppercase alphanumeric) re-enters an existing session with patch semantics — omitted fields and the original `checkedInAt` are preserved
-- Output carries your session plus `activeWorkers`, the full roster of every checked-in session
-- An unrecognized `workerId` fails with typed reason `unknown_worker` (NotFound) — recovery: omit `workerId` to start fresh, or reuse an ID from the active-workers table embedded in the error
-- Every check-in or update calls `notifyResourceUpdated('shift://status')`
+- Required `gist` plus optional `files` and `workerId` (6-char uppercase alphanumeric from an earlier check-in) to update a session.
+- Returns your session and `activeWorkers`. Updates preserve omitted files and the original `checkedInAt`.
+- An unknown `workerId` fails with reason `unknown_worker` (NotFound), a recovery hint, and the current roster.
 
 ---
 
@@ -148,7 +146,7 @@ MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 bun run start:http
 
 ### Prerequisites
 
-- [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
+- [Bun v1.4.2](https://bun.sh/) or higher (or Node.js v24+).
 - No API keys, accounts, or external services.
 
 ### Installation

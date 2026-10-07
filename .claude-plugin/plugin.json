@@ -15,11 +15,14 @@
     "mcp",
     "mcp-server",
     "model-context-protocol",
+    "stdio",
+    "streamable-http",
     "multi-agent",
     "coordination",
     "ai-agents",
     "agent-coordination",
-    "claude-code"
+    "claude-code",
+    "typescript"
   ],
   "mcpServers": {
     "shift-mcp-server": {

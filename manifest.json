@@ -5,9 +5,7 @@
   "version": "0.1.7",
   "description": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
   "author": {
-    "name": "cyanheads",
-    "email": "casey@caseyjhand.com",
-    "url": "https://caseyjhand.com"
+    "name": "cyanheads"
   },
   "repository": {
     "type": "git",

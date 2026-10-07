@@ -1,6 +1,6 @@
 # shift-mcp-server - Directory Structure
 
-Generated on: 2026-09-20 20:56:36
+Generated on: 2026-10-07 12:29:40
 
 ```text
 shift-mcp-server/
@@ -126,9 +126,11 @@ shift-mcp-server/
 │   ├── clean-mcpb.ts
 │   ├── clean.ts
 │   ├── devcheck.ts
+│   ├── install-otel.ts
 │   ├── lint-mcp.ts
 │   ├── lint-packaging.ts
 │   ├── list-skills.ts
+│   ├── prune-musl-packages.ts
 │   ├── release-github.ts
 │   └── tree.ts
 ├── src/
