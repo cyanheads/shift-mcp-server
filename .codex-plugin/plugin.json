@@ -24,7 +24,7 @@
   "interface": {
     "displayName": "shift-mcp-server",
     "shortDescription": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
-    "longDescription": "Check agents in and out of a shared codebase so concurrent sessions can see each other. Each check-in returns a worker ID, the coordination protocol, and a table of active peers with their declared scope and files; the shift://status resource exposes the same roster and notifies subscribers on every change. State is in-memory and clears on restart.",
+    "longDescription": "Check agents in and out of a workspace-scoped SQLite roster shared across local processes. Configure a common SHIFT_WORKSPACE and state directory. Each check-in returns coordination instructions, active peers, and a qualified statusUri. Sessions persist until check-out. Modern listeners receive mutations committed in their server process; poll to observe commits from other processes or through the framework's legacy adapter.",
     "developerName": "cyanheads",
     "category": "developer-tools",
     "capabilities": ["Read", "Write"],

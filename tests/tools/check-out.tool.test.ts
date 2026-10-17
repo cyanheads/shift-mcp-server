@@ -5,10 +5,11 @@
  */
 
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { checkOut } from '@/mcp-server/tools/definitions/check-out.tool.js';
-import { type WorkerSession, workers } from '@/services/worker-store/worker-store.js';
+import type { WorkerSession } from '@/services/worker-store/worker-store.js';
+import { notify, workers } from '../worker-fixture.js';
 
 const SESSION: WorkerSession = {
   workerId: 'ABC123',
@@ -23,7 +24,7 @@ describe('shift_check_out', () => {
   });
 
   describe('handler', () => {
-    it('removes the worker from the map and returns the workerId', async () => {
+    it('removes the persisted worker and returns the workerId', async () => {
       workers.set(SESSION.workerId, { ...SESSION });
 
       const result = await checkOut.handler(
@@ -96,7 +97,6 @@ describe('shift_check_out', () => {
     });
 
     it('notifies shift://status subscribers only when a session was removed', async () => {
-      const notify = vi.fn();
       workers.set(SESSION.workerId, { ...SESSION });
 
       await checkOut.handler(
@@ -120,20 +120,36 @@ describe('shift_check_out', () => {
 
   describe('format', () => {
     it('returns a single line without summary', () => {
-      expect(checkOut.format?.({ workerId: 'ABC123' })).toEqual([
-        { type: 'text', text: 'Checked out Worker ABC123. Session ended.' },
+      expect(
+        checkOut.format?.({
+          workerId: 'ABC123',
+          removed: true,
+          workspace: 'test',
+          statusUri: 'shift://status?workspace=test',
+        }),
+      ).toEqual([
+        {
+          type: 'text',
+          text: 'Checked out Worker ABC123. Session ended.\nWorkspace: test\nStatus: shift://status?workspace=test\nRemoved: true',
+        },
       ]);
     });
 
     it('includes the summary line when provided', () => {
-      expect(checkOut.format?.({ workerId: 'ABC123', summary: 'Finished auth refactor.' })).toEqual(
-        [
-          {
-            type: 'text',
-            text: 'Checked out Worker ABC123. Session ended.\nSummary: Finished auth refactor.',
-          },
-        ],
-      );
+      expect(
+        checkOut.format?.({
+          workerId: 'ABC123',
+          summary: 'Finished auth refactor.',
+          removed: true,
+          workspace: 'test',
+          statusUri: 'shift://status?workspace=test',
+        }),
+      ).toEqual([
+        {
+          type: 'text',
+          text: 'Checked out Worker ABC123. Session ended.\nWorkspace: test\nStatus: shift://status?workspace=test\nRemoved: true\nSummary: Finished auth refactor.',
+        },
+      ]);
     });
   });
 });

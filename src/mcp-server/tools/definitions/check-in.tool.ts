@@ -7,10 +7,11 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import {
   formatWorkersTable,
-  generateWorkerId,
+  getWorkerStore,
+  notifyWorkspace,
+  resolveWorkspace,
+  statusUri,
   WORKER_ID_PATTERN,
-  type WorkerSession,
-  workers,
 } from '@/services/worker-store/worker-store.js';
 
 const COORDINATION_PROTOCOL = `## Coordination Protocol
@@ -32,6 +33,12 @@ export const checkIn = tool('shift_check_in', {
   description: `This is a multi-agent workspace. Run this tool at the start of every working session to check in and receive coordination instructions. Provide a concise gist of what you're working on and the file paths you expect to modify (if known). If you already have a worker ID from a previous check-in, pass it to update your session.`,
   annotations: { readOnlyHint: false, idempotentHint: false },
   input: z.object({
+    workspace: z
+      .string()
+      .optional()
+      .describe(
+        'Opaque workspace identifier. Omit to use SHIFT_WORKSPACE or the server launch Git root/cwd. HTTP clients sharing a server must select their project explicitly.',
+      ),
     gist: z.string().min(1).describe('Concise description of what you are working on.'),
     files: z
       .array(z.string())
@@ -42,12 +49,15 @@ export const checkIn = tool('shift_check_in', {
     workerId: z
       .string()
       .regex(WORKER_ID_PATTERN)
+      .toUpperCase()
       .optional()
       .describe(
         'Your worker ID from a previous check-in. Omit on first call to receive a new one. Pass to update your session.',
       ),
   }),
   output: z.object({
+    workspace: z.string().describe('Resolved workspace identifier.'),
+    statusUri: z.string().describe('Workspace-qualified resource URI for this roster.'),
     workerId: z.string().describe('Your assigned worker ID.'),
     gist: z.string().describe('Your current working gist.'),
     files: z.array(z.string()).describe('Your declared file paths.'),
@@ -55,67 +65,70 @@ export const checkIn = tool('shift_check_in', {
     activeWorkers: z.array(workerSchema).describe('All currently active workers.'),
   }),
 
+  enrichment: {
+    notice: z
+      .string()
+      .optional()
+      .describe('Coordination protocol and applicable solo-worker notice.'),
+  },
+
   errors: [
     {
       reason: 'unknown_worker',
       code: JsonRpcErrorCode.NotFound,
-      when: 'The supplied workerId has no active session — it was checked out, or the server restarted.',
+      when: 'The supplied workerId has no active session in the selected workspace.',
       recovery:
         'Omit workerId to start a new session, or reuse an ID from the active workers table.',
     },
   ],
 
   handler(input, ctx) {
-    let session: WorkerSession;
-
-    if (input.workerId) {
-      const existing = workers.get(input.workerId);
-      if (!existing) {
-        throw ctx.fail(
-          'unknown_worker',
-          `Worker ID ${input.workerId} not found. Omit workerId to start a new session.\n\n## Active Workers\n${formatWorkersTable([...workers.values()])}`,
-          ctx.recoveryFor('unknown_worker'),
-        );
-      }
-      existing.gist = input.gist;
-      if (input.files !== undefined) existing.files = input.files;
-      session = existing;
-      ctx.log.info('Worker session updated', { workerId: session.workerId });
-    } else {
-      const workerId = generateWorkerId();
-      session = {
-        workerId,
-        gist: input.gist,
-        files: input.files ?? [],
-        checkedInAt: new Date().toISOString(),
-      };
-      workers.set(workerId, session);
-      ctx.log.info('Worker checked in', { workerId });
+    ctx.signal.throwIfAborted();
+    const workspace = resolveWorkspace(input.workspace);
+    const uri = statusUri(workspace);
+    const { session, activeWorkers } = getWorkerStore().checkIn(workspace, input);
+    if (!session) {
+      throw ctx.fail(
+        'unknown_worker',
+        `Worker ID ${input.workerId} not found. Omit workerId to start a new session. Read ${uri} for this workspace.\n\n## Active Workers\n${formatWorkersTable(activeWorkers)}`,
+        ctx.recoveryFor('unknown_worker'),
+      );
     }
-
-    ctx.notifyResourceUpdated?.('shift://status');
+    ctx.log.info(input.workerId ? 'Worker session updated' : 'Worker checked in', {
+      workerId: session.workerId,
+    });
+    notifyWorkspace(workspace);
+    const solo =
+      activeWorkers.length === 1
+        ? "\n\nYou're the first to check in. No other agents are currently active."
+        : '';
+    ctx.enrich.notice(`${COORDINATION_PROTOCOL}${solo}`);
 
     return {
+      workspace,
+      statusUri: uri,
       workerId: session.workerId,
       gist: session.gist,
       files: session.files,
       checkedInAt: session.checkedInAt,
-      activeWorkers: [...workers.values()],
+      activeWorkers,
     };
   },
 
   format(result) {
     const session = `## Your Session
 - **Worker ID:** ${result.workerId}
+- **Workspace:** ${result.workspace}
+- **Status:** ${result.statusUri}
 - **Gist:** ${result.gist}
 - **Files:** ${result.files.length > 0 ? result.files.join(', ') : '—'}
 - **Checked in:** ${result.checkedInAt}`;
 
-    const hasPeers = result.activeWorkers.some((w) => w.workerId !== result.workerId);
-    const active = hasPeers
-      ? `## Active Workers\n${formatWorkersTable(result.activeWorkers)}`
-      : "## Active Workers\nYou're the first to check in. No other agents are currently active.";
-
-    return [{ type: 'text', text: `${session}\n\n${COORDINATION_PROTOCOL}\n\n${active}` }];
+    return [
+      {
+        type: 'text',
+        text: `${session}\n\n## Active Workers\n${formatWorkersTable(result.activeWorkers)}`,
+      },
+    ];
   },
 });

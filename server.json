@@ -16,6 +16,18 @@
       "version": "0.1.8",
       "environmentVariables": [
         {
+          "name": "SHIFT_WORKSPACE",
+          "description": "Shared exact-match workspace namespace; defaults to the launch Git root or cwd.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "SHIFT_STATE_DIR",
+          "description": "Shared writable SQLite directory; defaults to ~/.local/state/shift-mcp-server.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
           "name": "MCP_LOG_LEVEL",
           "description": "Sets the minimum log level for output (e.g., 'debug', 'info', 'warn').",
           "format": "string",
@@ -34,6 +46,18 @@
       "runtimeHint": "npx",
       "version": "0.1.8",
       "environmentVariables": [
+        {
+          "name": "SHIFT_WORKSPACE",
+          "description": "Default exact-match namespace. Multiplexed HTTP callers must select workspace per tool call.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "SHIFT_STATE_DIR",
+          "description": "Shared writable SQLite directory; defaults to ~/.local/state/shift-mcp-server.",
+          "format": "string",
+          "isRequired": false
+        },
         {
           "name": "MCP_TRANSPORT_TYPE",
           "description": "Selects the HTTP transport.",

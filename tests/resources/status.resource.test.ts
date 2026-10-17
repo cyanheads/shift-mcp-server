@@ -8,7 +8,8 @@ import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { statusResource } from '@/mcp-server/resources/definitions/status.resource.js';
-import { type WorkerSession, workers } from '@/services/worker-store/worker-store.js';
+import type { WorkerSession } from '@/services/worker-store/worker-store.js';
+import { workers } from '../worker-fixture.js';
 
 const makeWorker = (overrides: Partial<WorkerSession> = {}): WorkerSession => ({
   workerId: 'ABC123',

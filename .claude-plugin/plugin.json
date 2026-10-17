@@ -29,8 +29,14 @@
       "command": "npx",
       "args": ["-y", "@cyanheads/shift-mcp-server"],
       "env": {
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "SHIFT_WORKSPACE": "${user_config.workspace}",
+        "SHIFT_STATE_DIR": "${user_config.state_dir}"
       }
     }
+  },
+  "userConfig": {
+    "workspace": { "type": "string", "title": "Workspace", "description": "Shared exact-match namespace for agents working on one project.", "required": true },
+    "state_dir": { "type": "string", "title": "State directory", "description": "Shared writable local SQLite directory; blank uses ~/.local/state/shift-mcp-server.", "default": "" }
   }
 }

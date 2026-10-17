@@ -4,7 +4,11 @@
  */
 
 import { resource } from '@cyanheads/mcp-ts-core';
-import { formatWorkersTable, workers } from '@/services/worker-store/worker-store.js';
+import {
+  formatWorkersTable,
+  getWorkerStore,
+  resolveWorkspace,
+} from '@/services/worker-store/worker-store.js';
 
 export const statusResource = resource('shift://status', {
   name: 'Active Workers',
@@ -13,10 +17,8 @@ export const statusResource = resource('shift://status', {
   mimeType: 'text/markdown',
 
   handler() {
-    if (workers.size === 0) {
-      return '## Active Workers (0)\nNo agents are currently active.';
-    }
-    return `## Active Workers (${workers.size})\n${formatWorkersTable([...workers.values()])}`;
+    const workers = getWorkerStore().list(resolveWorkspace());
+    return `## Active Workers (${workers.length})\n${formatWorkersTable(workers)}`;
   },
 
   format: (text, meta) => [{ uri: meta.uri.href, text: text as string, mimeType: meta.mimeType }],

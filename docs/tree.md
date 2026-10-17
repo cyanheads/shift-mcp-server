@@ -1,6 +1,6 @@
 # shift-mcp-server - Directory Structure
 
-Generated on: 2026-10-07 12:29:40
+Generated on: 2026-10-17 22:15:57
 
 ```text
 shift-mcp-server/
@@ -134,10 +134,13 @@ shift-mcp-server/
 │   ├── release-github.ts
 │   └── tree.ts
 ├── src/
+│   ├── config/
+│   │   └── server-config.ts
 │   ├── mcp-server/
 │   │   ├── resources/
 │   │   │   └── definitions/
-│   │   │       └── status.resource.ts
+│   │   │       ├── status.resource.ts
+│   │   │       └── workspace-status.resource.ts
 │   │   └── tools/
 │   │       └── definitions/
 │   │           ├── check-in.tool.ts
@@ -150,16 +153,19 @@ shift-mcp-server/
 │   ├── fuzz/
 │   │   └── shift-tools.fuzz.test.ts
 │   ├── integration/
-│   │   └── shift-contract.int.test.ts
+│   │   ├── notifications.int.test.ts
+│   │   ├── shift-contract.int.test.ts
+│   │   └── worker-process.int.test.ts
 │   ├── resources/
 │   │   └── status.resource.test.ts
 │   ├── services/
 │   │   └── worker-store.test.ts
 │   ├── smoke/
 │   │   └── definitions.smoke.test.ts
-│   └── tools/
-│       ├── check-in.tool.test.ts
-│       └── check-out.tool.test.ts
+│   ├── tools/
+│   │   ├── check-in.tool.test.ts
+│   │   └── check-out.tool.test.ts
+│   └── worker-fixture.ts
 ├── .dockerignore
 ├── .env.example
 ├── .gitattributes

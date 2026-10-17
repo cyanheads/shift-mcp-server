@@ -7,10 +7,11 @@
 
 import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { checkIn } from '@/mcp-server/tools/definitions/check-in.tool.js';
-import { type WorkerSession, workers } from '@/services/worker-store/worker-store.js';
+import type { WorkerSession } from '@/services/worker-store/worker-store.js';
+import { notify, workers } from '../worker-fixture.js';
 
 type CheckInContext = HandlerContext<ReasonOf<typeof checkIn.errors>>;
 type CheckInResult = Awaited<ReturnType<typeof checkIn.handler>>;
@@ -67,14 +68,12 @@ describe('shift_check_in', () => {
     });
 
     it('notifies shift://status subscribers', async () => {
-      const notify = vi.fn();
-
       await checkIn.handler(
         parse({ gist: 'Notify me' }),
         checkInContext({ notifyResourceUpdated: notify }),
       );
 
-      expect(notify).toHaveBeenCalledWith('shift://status');
+      expect(notify.mock.calls).toEqual([['shift://status?workspace=test'], ['shift://status']]);
     });
   });
 
@@ -114,6 +113,15 @@ describe('shift_check_in', () => {
       );
 
       expect(result.files).toEqual(['a.ts']);
+    });
+
+    it('clears files only when an explicit empty declaration is supplied', async () => {
+      const result = await checkIn.handler(
+        parse({ gist: 'Cleared scope', workerId: existing.workerId, files: [] }),
+        ctx,
+      );
+      expect(result.files).toEqual([]);
+      expect(result.checkedInAt).toBe(existing.checkedInAt);
     });
   });
 
@@ -159,7 +167,7 @@ describe('shift_check_in', () => {
   });
 
   describe('format', () => {
-    it('renders session info, the coordination protocol, and the check-in timestamp', async () => {
+    it('renders session scope and the original check-in timestamp', async () => {
       const result = await checkIn.handler(
         parse({ gist: 'Working on API', files: ['api.ts'] }),
         ctx,
@@ -170,16 +178,14 @@ describe('shift_check_in', () => {
       expect(text).toContain('Working on API');
       expect(text).toContain('api.ts');
       expect(text).toContain(result.checkedInAt);
-      expect(text).toContain('Coordination Protocol');
-      expect(text).toContain('shift_check_in');
-      expect(text).toContain('shift_check_out');
+      expect(text).toContain('Workspace:');
     });
 
-    it('shows "first to check in" message when solo', async () => {
+    it('renders the solo worker table separately from enrichment', async () => {
       const text = rendered(await checkIn.handler(parse({ gist: 'Solo work' }), ctx));
 
-      expect(text).toContain('first to check in');
-      expect(text).toContain('No other agents are currently active');
+      expect(text).toContain('## Active Workers');
+      expect(text).toContain('| Worker |');
     });
 
     it('shows active workers table when peers exist', async () => {

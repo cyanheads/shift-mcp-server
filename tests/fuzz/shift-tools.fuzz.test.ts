@@ -8,7 +8,7 @@ import { expect, it } from 'vitest';
 
 import { checkIn } from '@/mcp-server/tools/definitions/check-in.tool.js';
 import { checkOut } from '@/mcp-server/tools/definitions/check-out.tool.js';
-import { workers } from '@/services/worker-store/worker-store.js';
+import { workers } from '../worker-fixture.js';
 
 it.each([
   ['shift_check_in', checkIn],

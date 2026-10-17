@@ -2,10 +2,10 @@
 
 **Server:** shift-mcp-server
 **Version:** 0.1.8
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.13`
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.15`
 **Engines:** Bun ≥1.4.0, Node ≥24.0.0
-**MCP SDK:** `@modelcontextprotocol/server` ^2.2.0
-**Zod:** ^4.6.5
+**MCP SDK:** `@modelcontextprotocol/server` ^2.3.1
+**Zod:** ^4.6.7
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
 
@@ -34,7 +34,7 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 
 - **Logic throws, framework catches.** Tool/resource handlers are pure — throw on failure, no `try/catch`. Plain `Error` is fine; the framework catches, classifies, and formats. Use error factories (`notFound()`, `validationError()`, etc.) when the error code matters.
 - **Use `ctx.log`** for request-scoped logging. No `console` calls.
-- **Use `ctx.state`** for tenant-scoped storage. Never access persistence directly.
+- **Use `ctx.state`** for tenant-scoped KV. The workspace roster uses its transactional `WorkerStore` service; handlers never issue SQL directly.
 - **Need input the caller didn't supply?** `return ctx.requestInput(...)` and read `ctx.inputs` when the handler is re-entered. Never `await` for user input mid-handler.
 - **Secrets in env vars only** — never hardcoded.
 - **Cut noise.** Add only what earns its place: no speculative generality, no guards for states the framework already prevents (Zod-validated params, classified errors), no abstraction until a third caller proves it, no option nothing sets.
@@ -49,7 +49,7 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 ```ts
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { formatWorkersTable, type WorkerSession, workers } from '@/services/worker-store/worker-store.js';
+import { formatWorkersTable, getWorkerStore, notifyWorkspace, resolveWorkspace } from '@/services/worker-store/worker-store.js';
 
 const workerSchema = z
   .object({
@@ -81,11 +81,13 @@ export const checkIn = tool('shift_check_in', {
   ],
 
   handler(input, ctx) {
-    const session: WorkerSession = upsertSession(input);
+    const workspace = resolveWorkspace();
+    const { session, activeWorkers } = getWorkerStore().checkIn(workspace, input);
+    if (!session) throw ctx.fail('unknown_worker');
     ctx.log.info('Worker checked in', { workerId: session.workerId });
-    // Every mutation of the roster notifies shift://status subscribers.
-    ctx.notifyResourceUpdated?.('shift://status');
-    return { workerId: session.workerId, activeWorkers: [...workers.values()] };
+    // Publish through the server notifier after the transaction commits.
+    notifyWorkspace(workspace);
+    return { workerId: session.workerId, activeWorkers };
   },
 
   // format() populates content[] — the markdown twin of structuredContent.
@@ -102,7 +104,7 @@ export const checkIn = tool('shift_check_in', {
 
 ```ts
 import { resource } from '@cyanheads/mcp-ts-core';
-import { formatWorkersTable, workers } from '@/services/worker-store/worker-store.js';
+import { formatWorkersTable, getWorkerStore, resolveWorkspace } from '@/services/worker-store/worker-store.js';
 
 export const statusResource = resource('shift://status', {
   name: 'Active Workers',
@@ -110,8 +112,8 @@ export const statusResource = resource('shift://status', {
   mimeType: 'text/markdown',
 
   handler() {
-    if (workers.size === 0) return '## Active Workers (0)\nNo agents are currently active.';
-    return `## Active Workers (${workers.size})\n${formatWorkersTable([...workers.values()])}`;
+    const workers = getWorkerStore().list(resolveWorkspace());
+    return `## Active Workers (${workers.length})\n${formatWorkersTable(workers)}`;
   },
 
   format: (text, meta) => [{ uri: meta.uri.href, text: text as string, mimeType: meta.mimeType }],
@@ -124,7 +126,7 @@ export const statusResource = resource('shift://status', {
 
 ### Server config
 
-No server-specific environment variables — worker sessions live in memory and clear on restart, so there is no `src/config/server-config.ts`. Add one (`parseEnvConfig` over a Zod schema) only if a real knob appears; use `z.stringbool()` for env booleans, never `z.coerce.boolean()`.
+`src/config/server-config.ts` parses `SHIFT_STATE_DIR` and `SHIFT_WORKSPACE` during setup. SQLite defaults to `~/.local/state/shift-mcp-server/roster.sqlite`; the default workspace is `SHIFT_WORKSPACE`, otherwise the real enclosing Git root or launch cwd. Explicit workspace selectors are opaque. Sessions persist across restarts until check-out. `docs/design.md` records transaction and namespace rules.
 
 ### Server identity and instructions
 
@@ -135,7 +137,7 @@ await createApp({
   name: 'shift-mcp-server',
   title: 'shift-mcp-server',
   tools: [checkIn, checkOut],
-  resources: [statusResource],
+  resources: [statusResource, workspaceStatusResource],
 });
 ```
 
@@ -157,7 +159,7 @@ await createApp({
 
 `teardown(core)` is the `setup()` counterpart — release a watcher, socket, or non-`unref()`'d timer there. It runs after the transport stops and before the logger closes, on every shutdown path, and a signal-triggered shutdown then exits the process explicitly (0, or 1 if a step never settles within the framework's 10 s ceiling).
 
-This server declares `sessionMode: 'stateless'` and neither hook: no tool calls `ctx.requestInput`, and the worker roster is a plain in-memory `Map` with nothing to release.
+This server declares `sessionMode: 'stateless'`: no tool calls `ctx.requestInput`. Setup opens the SQLite store and captures `core.notify.resourceUpdated`; teardown closes storage. Modern subscriptions receive process-local committed mutations from either protocol era. The framework's legacy adapter and other processes require polling; this is not a restriction of the 2025 protocol.
 
 ---
 
@@ -169,11 +171,11 @@ Handlers receive a unified `ctx` object. Key properties:
 |:---------|:------------|
 | `ctx.log` | Request-scoped logger — `.debug()`, `.info()`, `.notice()`, `.warning()`, `.error()`. Auto-correlates requestId, traceId, tenantId. Dual-sink: Pino **and** `notifications/message` to the client, so treat it as client-visible. |
 | `ctx.fail` / `ctx.recoveryFor` | Typed throw against the definition's `errors[]` reason union, and the resolver that puts the declared `recovery` string on the wire. |
-| `ctx.notifyResourceUpdated` | Signals that `shift://status` changed. Called on every check-in, session update, and check-out. Subscription-scoped — see `framework-skills/api-context`. |
+| `ctx.enrich.notice` | Carries the composed coordination protocol and solo notice once on both production output surfaces. |
 | `ctx.signal` | `AbortSignal` for cancellation. |
 | `ctx.requestId` | Request ID — the one every log record of the call carries and its error envelope returns as `data.requestId`. |
 
-`ctx.state`, `ctx.requestInput` / `ctx.inputs`, `ctx.enrich`, and `ctx.content` are unused here — the worker roster is a module-level `Map`, not tenant-scoped storage. `framework-skills/api-context` documents the full surface if one becomes relevant.
+`ctx.state`, `ctx.requestInput` / `ctx.inputs`, and `ctx.content` are unused here. Roster mutations call `notifyWorkspace()` only after commit, replacing request-scoped notifications to avoid duplicates. It publishes the qualified URI, plus the bare alias only for the default workspace.
 
 ---
 
@@ -225,16 +227,18 @@ See framework CLAUDE.md and the `api-errors` skill for the full auto-classificat
 
 ```text
 src/
+  config/server-config.ts                          # SHIFT_STATE_DIR and SHIFT_WORKSPACE
   index.ts                                        # createApp() entry point
   services/
     worker-store/
-      worker-store.ts                             # In-memory session Map, ID generation, table formatting
+      worker-store.ts                             # SQLite transactions, workspace identity, table formatting
   mcp-server/
     tools/definitions/
       check-in.tool.ts                            # shift_check_in
       check-out.tool.ts                           # shift_check_out
     resources/definitions/
       status.resource.ts                          # shift://status
+      workspace-status.resource.ts                # shift://status{?workspace}
 ```
 
 The worker store is shared state read by both tools and the resource, so it lives under `src/services/` rather than beside one of its consumers.
@@ -395,10 +399,10 @@ import { getMyService } from '@/services/my-domain/my-service.js';
 - [ ] `ctx.log` for logging — no `console` calls
 - [ ] Handlers throw on failure — error factories or plain `Error`, no try/catch
 - [ ] `format()` renders all data the LLM needs — different clients forward different surfaces (Claude Code → `structuredContent`, Claude Desktop → `content[]`); both must carry the same data
-- [ ] Any change to the roster (check-in, session update, check-out) calls `ctx.notifyResourceUpdated('shift://status')`
-- [ ] `workerId` inputs keep the `WORKER_ID_PATTERN` regex, so a malformed ID is rejected before the handler runs
-- [ ] Every field rendered into the active-workers table appears verbatim — `format-parity` walks nested array fields, so a truncated or reformatted value fails `lint:mcp`
-- [ ] Tests clear `workers` in `beforeEach` — the store is module-level and persists across cases
+- [ ] Actual roster mutations publish through `notifyWorkspace()` after commit; no-op check-out emits nothing
+- [ ] `workerId` inputs validate six ASCII letters/digits before uppercasing; Unicode expansion, whitespace and punctuation stay invalid
+- [ ] Table cells escape backslashes before pipes and flatten newlines; raw stored/structured values and full timestamps are preserved
+- [ ] Tests isolate SQLite state in scratch directories; never read or mutate an installed user's roster
 - [ ] Registered in `createApp()` arrays (directly or via barrel exports)
 - [ ] Tests use `createMockContext()` from `@cyanheads/mcp-ts-core/testing`
 - [ ] `.codex-plugin/plugin.json` populated — `name`, `version`, `description`, `repository`, `license` from `package.json`; `interface.displayName` = the unscoped repo name (never the npm scope — `lint:packaging` enforces this); `interface.shortDescription` from `package.json` description

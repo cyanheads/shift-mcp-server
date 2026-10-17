@@ -22,7 +22,9 @@
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio",
         "MCP_AUTH_MODE": "none",
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "SHIFT_WORKSPACE": "${user_config.workspace}",
+        "SHIFT_STATE_DIR": "${user_config.state_dir}"
       }
     }
   },
@@ -33,5 +35,18 @@
   },
   "tools_generated": true,
   "prompts_generated": true,
-  "user_config": {}
+  "user_config": {
+    "workspace": {
+      "type": "string",
+      "title": "Workspace",
+      "description": "Shared exact-match namespace for agents working on one project.",
+      "required": true
+    },
+    "state_dir": {
+      "type": "string",
+      "title": "State directory",
+      "description": "Shared writable local SQLite directory; blank uses ~/.local/state/shift-mcp-server.",
+      "default": ""
+    }
+  }
 }

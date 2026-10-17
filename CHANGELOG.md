@@ -12,7 +12,7 @@ Rebuilt on @cyanheads/mcp-ts-core ^0.13.6 (from ^0.12.3): invalid arguments reje
 
 ## [0.1.6](changelog/0.1.x/0.1.6.md) — 2026-08-22
 
-Rebuilt on @cyanheads/mcp-ts-core ^0.12.3 (from ^0.1.26): every HTTP endpoint now serves protocol revision 2026-07-28, tool inputs are strict, the advertised outputSchema declares the error envelope, and shift://status updates reach subscribers on both protocol eras.
+Rebuilt on @cyanheads/mcp-ts-core ^0.12.3 (from ^0.1.26): every HTTP endpoint now serves protocol revision 2026-07-28, tool inputs are strict, the advertised outputSchema declares the error envelope, and modern clients can subscribe to shift://status updates.
 
 ## [0.1.5](changelog/0.1.x/0.1.5.md) — 2026-03-23
 

@@ -1,5 +1,5 @@
 /**
- * @fileoverview Tests for the in-memory worker session store.
+ * @fileoverview Tests for worker identity and roster table presentation.
  * @module tests/services/worker-store.test
  */
 
@@ -7,16 +7,17 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   formatWorkersTable,
   generateWorkerId,
+  getWorkerStore,
   WORKER_ID_PATTERN,
   type WorkerSession,
-  workers,
 } from '@/services/worker-store/worker-store.js';
+import { workers } from '../worker-fixture.js';
 
 beforeEach(() => {
   workers.clear();
 });
 
-describe('workers map', () => {
+describe('worker roster fixture', () => {
   it('starts empty after clear', () => {
     expect(workers.size).toBe(0);
   });
@@ -32,7 +33,7 @@ describe('generateWorkerId', () => {
     expect(ids.size).toBe(50);
   });
 
-  it('does not collide with existing workers in the map', () => {
+  it('allocates IDs distinct from existing persisted workers', () => {
     const existing: WorkerSession = {
       workerId: 'AAAAAA',
       gist: 'existing session',
@@ -41,13 +42,28 @@ describe('generateWorkerId', () => {
     };
     workers.set(existing.workerId, existing);
 
-    for (const id of Array.from({ length: 50 }, () => generateWorkerId())) {
-      expect(id).not.toBe('AAAAAA');
+    for (const result of Array.from({ length: 50 }, () =>
+      getWorkerStore().checkIn('test', { gist: 'allocated' }),
+    )) {
+      expect(result.session?.workerId).not.toBe('AAAAAA');
     }
   });
 });
 
 describe('formatWorkersTable', () => {
+  it('keeps backslashes, pipes and all newline forms inside one physical row', () => {
+    const session = {
+      workerId: 'ABC123',
+      checkedInAt: '2026-03-23T14:30:00Z',
+      gist: 'a\\|b\r\nc\nd\re\\',
+      files: ['a\\\\|b\rc'],
+    };
+    const table = formatWorkersTable([session]);
+    expect(table.split('\n')).toHaveLength(3);
+    expect(table).toContain('a\\\\\\|b c d e\\\\');
+    expect(table).toContain('a\\\\\\\\\\|b c');
+    expect(session.gist).toBe('a\\|b\r\nc\nd\re\\');
+  });
   it('returns "no agents" message for empty array', () => {
     expect(formatWorkersTable([])).toBe('No agents are currently active.');
   });

@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { statusResource } from '@/mcp-server/resources/definitions/status.resource.js';
 import { checkIn } from '@/mcp-server/tools/definitions/check-in.tool.js';
 import { checkOut } from '@/mcp-server/tools/definitions/check-out.tool.js';
-import { workers } from '@/services/worker-store/worker-store.js';
+import { workers } from '../worker-fixture.js';
 
 describe('shift definition smoke test', () => {
   beforeEach(() => {
@@ -37,7 +37,7 @@ describe('shift definition smoke test', () => {
     expect(checkedOut).toEqual(expect.schemaMatching(checkOut.output));
     expect(checkOut.format?.(checkedOut)?.[0]).toEqual({
       type: 'text',
-      text: `Checked out Worker ${checkedIn.workerId}. Session ended.\nSummary: smoke done`,
+      text: `Checked out Worker ${checkedIn.workerId}. Session ended.\nWorkspace: test\nStatus: shift://status?workspace=test\nRemoved: true\nSummary: smoke done`,
     });
 
     const emptied = await statusResource.handler({}, resourceCtx);

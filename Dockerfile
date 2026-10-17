@@ -14,7 +14,7 @@
 # output. A stage that compiles a native addon needs the target-arch toolchain
 # and cannot cross-compile this way — drop the flag there.
 # ==============================================================================
-FROM --platform=$BUILDPLATFORM oven/bun:1.4.2 AS build
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.3 AS build
 
 WORKDIR /usr/src/app
 
@@ -46,7 +46,7 @@ RUN bun run build
 # A clean image rather than `FROM build`: the build stage's node_modules holds
 # devDependencies.
 # ==============================================================================
-FROM --platform=$BUILDPLATFORM oven/bun:1.4.2 AS deps
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.3 AS deps
 
 WORKDIR /usr/src/app
 
@@ -114,7 +114,7 @@ RUN rm -rf node_modules/@socketsecurity/bun-security-scanner
 # dependencies and build artifacts. Its only Bun invocations are HEALTHCHECK
 # and CMD, which run on the real target at container start.
 # ==============================================================================
-FROM oven/bun:1.4.2-slim AS production
+FROM oven/bun:1.4.3-slim AS production
 
 WORKDIR /usr/src/app
 
@@ -155,6 +155,8 @@ COPY --from=build /usr/src/app/dist ./dist
 # Create and set permissions for the log directory, assigning ownership to the 'bun' user.
 RUN mkdir -p /var/log/shift-mcp-server && chown -R bun:bun /var/log/shift-mcp-server
 
+RUN mkdir -p /var/lib/shift-mcp-server && chown bun:bun /var/lib/shift-mcp-server
+
 # Writable data dirs for on-disk SQLite stores (catalog index / observations
 # mirror), owned by the runtime user. Mount a volume over either in production.
 RUN mkdir -p /usr/src/app/.cache /usr/src/app/.mirror \
@@ -175,6 +177,7 @@ ENV MCP_TRANSPORT_TYPE="http"
 ENV MCP_SESSION_MODE="stateless"
 ENV MCP_LOG_LEVEL="info"
 ENV LOGS_DIR="/var/log/shift-mcp-server"
+ENV SHIFT_STATE_DIR="/var/lib/shift-mcp-server"
 
 # Expose the port the server listens on
 EXPOSE ${MCP_HTTP_PORT}
