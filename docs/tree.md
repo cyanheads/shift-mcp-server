@@ -1,6 +1,6 @@
 # shift-mcp-server - Directory Structure
 
-Generated on: 2026-10-17 22:15:57
+Generated on: 2026-10-17 22:35:35
 
 ```text
 shift-mcp-server/
@@ -25,6 +25,7 @@ shift-mcp-server/
 │   └── settings.json
 ├── changelog/
 │   ├── 0.1.x/
+│   ├── 0.2.x/
 │   └── template.md
 ├── docs/
 │   └── design.md
