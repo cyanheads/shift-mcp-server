@@ -1,6 +1,6 @@
 {
   "name": "@cyanheads/shift-mcp-server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "mcpName": "io.github.cyanheads/shift-mcp-server",
   "description": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
   "type": "module",
