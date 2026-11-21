@@ -2,9 +2,9 @@
 
 **Server:** shift-mcp-server
 **Version:** 0.2.0
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.15`
-**Engines:** Bun ≥1.4.0, Node ≥24.0.0
-**MCP SDK:** `@modelcontextprotocol/server` ^2.3.1
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.22`
+**Engines:** Bun ≥1.4.4, Node ≥24.0.0
+**MCP SDK:** `@modelcontextprotocol/server` ^2.4.0
 **Zod:** ^4.6.7
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
@@ -49,7 +49,8 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 ```ts
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { formatWorkersTable, getWorkerStore, notifyWorkspace, resolveWorkspace } from '@/services/worker-store/worker-store.js';
+import { formatWorkersTable } from '@/mcp-server/roster-format.js';
+import { getWorkerStore, notifyWorkspace, resolveWorkspace } from '@/services/worker-store/worker-store.js';
 
 const workerSchema = z
   .object({
@@ -76,7 +77,8 @@ export const checkIn = tool('shift_check_in', {
       reason: 'unknown_worker',
       code: JsonRpcErrorCode.NotFound,
       when: 'The supplied workerId has no active session.',
-      recovery: 'Omit workerId to start a new session, or reuse an ID from the active workers table.',
+      recovery:
+        'Use your original workspace and your own saved or confirmed workerId. If you cannot confirm it, omit workerId to start a new session.',
     },
   ],
 
@@ -104,7 +106,8 @@ export const checkIn = tool('shift_check_in', {
 
 ```ts
 import { resource } from '@cyanheads/mcp-ts-core';
-import { formatWorkersTable, getWorkerStore, resolveWorkspace } from '@/services/worker-store/worker-store.js';
+import { formatRoster } from '@/mcp-server/roster-format.js';
+import { getWorkerStore, resolveWorkspace } from '@/services/worker-store/worker-store.js';
 
 export const statusResource = resource('shift://status', {
   name: 'Active Workers',
@@ -112,8 +115,8 @@ export const statusResource = resource('shift://status', {
   mimeType: 'text/markdown',
 
   handler() {
-    const workers = getWorkerStore().list(resolveWorkspace());
-    return `## Active Workers (${workers.length})\n${formatWorkersTable(workers)}`;
+    const { activeWorkers, recentlyFinished } = getWorkerStore().status(resolveWorkspace());
+    return formatRoster(activeWorkers, recentlyFinished);
   },
 
   format: (text, meta) => [{ uri: meta.uri.href, text: text as string, mimeType: meta.mimeType }],
@@ -126,7 +129,7 @@ export const statusResource = resource('shift://status', {
 
 ### Server config
 
-`src/config/server-config.ts` parses `SHIFT_STATE_DIR` and `SHIFT_WORKSPACE` during setup. SQLite defaults to `~/.local/state/shift-mcp-server/roster.sqlite`; the default workspace is `SHIFT_WORKSPACE`, otherwise the real enclosing Git root or launch cwd. Explicit workspace selectors are opaque. Sessions persist across restarts until check-out. `docs/design.md` records transaction and namespace rules.
+`src/config/server-config.ts` reads `SHIFT_STATE_DIR`, `SHIFT_WORKSPACE`, and `CLAUDE_PROJECT_DIR` during setup. SQLite defaults to `~/.local/state/shift-mcp-server/roster.sqlite`. The default workspace comes from `SHIFT_WORKSPACE` if set. Otherwise use the real Git root of `CLAUDE_PROJECT_DIR` or the launch directory, or the real directory itself outside Git. Explicit workspace selectors are opaque. Sessions persist across restarts until check-out. `docs/design.md` records transaction and namespace rules.
 
 ### Server identity and instructions
 
@@ -227,21 +230,25 @@ See framework CLAUDE.md and the `api-errors` skill for the full auto-classificat
 
 ```text
 src/
-  config/server-config.ts                          # SHIFT_STATE_DIR and SHIFT_WORKSPACE
+  config/server-config.ts                          # State directory and default workspace
   index.ts                                        # createApp() entry point
   services/
     worker-store/
-      worker-store.ts                             # SQLite transactions, workspace identity, table formatting
+      worker-store.ts                             # Workspace identity and roster transactions
+      roster-schema.ts                             # SQLite schema, migration, join order and pruning
+      process-ownership.ts                         # Namespace identity and process liveness
   mcp-server/
+    roster-format.ts                              # Active roster and handoff presentation
     tools/definitions/
       check-in.tool.ts                            # shift_check_in
       check-out.tool.ts                           # shift_check_out
+      file-overlaps.ts                            # Lexical declared-file comparison
     resources/definitions/
       status.resource.ts                          # shift://status
       workspace-status.resource.ts                # shift://status{?workspace}
 ```
 
-The worker store is shared state read by both tools and the resource, so it lives under `src/services/` rather than beside one of its consumers.
+Check-in updates the current process owner and last-seen time while preserving the session's original join order. Ownership probes are advisory and require a verified shared PID namespace. Check-out removes the worker, records a handoff when eligible peers remain, and prunes expired history inside one transaction. Both status resources format one committed snapshot through `roster-format.ts`.
 
 ---
 
@@ -258,7 +265,9 @@ The worker store is shared state read by both tools and the resource, so it live
 
 ## Skills
 
-Skills are modular instructions in `framework-skills/` at the project root. Read them directly when a task matches — e.g., `framework-skills/add-tool/SKILL.md` when adding a tool. `bun run list-skills` prints the full registry. The directory is deliberately not `skills/`: Claude Code and Codex auto-load a plugin's root `skills/`, so a server that ships `.claude-plugin/` or `.codex-plugin/` would hand these development skills to every agent that installs it. Keep `skills/` free for skills meant for those agents.
+Development skills live in `framework-skills/`. Read them directly when a task matches. For example, read `framework-skills/add-tool/SKILL.md` before adding a tool. `bun run list-skills` prints the registry.
+
+Root `skills/` holds published instructions for agents that use this server. Plugin installs, the desktop bundle, npm, and Docker include that tree when present. `createApp({ skills: 'skills' })` also serves it over MCP. `lint:packaging` validates the tree.
 
 **Agent skill directory:** Copy skills into the directory your agent discovers (Claude Code: `.claude/skills/`, others: equivalent). Skills then load as context without referencing `framework-skills/` paths. After framework updates, run the `maintenance` skill — Phase B re-syncs the agent directory.
 
@@ -272,6 +281,7 @@ Available skills:
 | `add-app-tool` | Scaffold an MCP App tool + paired UI resource |
 | `add-resource` | Scaffold a new resource definition |
 | `add-prompt` | Scaffold a new prompt definition |
+| `add-skill` | Author and verify a published skill in root `skills/` |
 | `add-service` | Scaffold a new service integration |
 | `add-test` | Scaffold test file for a tool, resource, or service |
 | `field-test` | Exercise tools/resources/prompts with real inputs, verify behavior, report issues |
@@ -319,7 +329,7 @@ When you complete a skill's checklist, check the boxes and add a completion time
 | `bun run audit:fix` | `bun audit fix` — upgrade vulnerable packages to the lowest safe version within existing ranges (`--dry-run` previews, `--latest` rewrites ranges). First response when `devcheck` flags a transitive advisory; then `bun update <name>`, then `bun dedupe` |
 | `bun run audit:refresh` | Delete `bun.lock` and reinstall. Last resort after `audit:fix`, `bun update <name>`, and `bun dedupe` — re-resolves every ranged dep (the framework pin included) and rewrites the lockfile as `lockfileVersion: 2` |
 | `bun run lint:mcp` | Run the MCP definition linter standalone (rule catalog: `api-linter` skill) |
-| `bun run lint:packaging` | Packaging surface checks — `server.json`/`manifest.json` env-var parity (run by devcheck) |
+| `bun run lint:packaging` | Check manifest parity, bundle contents, plugin manifests, and the published skill tree |
 | `bun run list-skills` | Print the skill registry |
 | `bun run tree` | Generate directory structure doc |
 | `bun run format` | Auto-fix formatting (safe fixes only) |
@@ -337,7 +347,7 @@ When you complete a skill's checklist, check the boxes and add a completion time
 
 ## Bundling
 
-`npm run bundle` produces a `.mcpb` extension bundle for one-click install in Claude Desktop. The pack step is followed by `scripts/clean-mcpb.ts`, which prunes dev dependencies (`mcpb clean`) and strips two classes of `node_modules/**` content that root-anchored `.mcpbignore` patterns cannot reach: dependency-shipped agent docs (`framework-skills/`, `skills/`, `.claude/`, `.agents/`, `SKILL.md`) and platform-specific native bindings, which would otherwise lock the bundle to the platform it was packed on. A server using DataCanvas therefore ships a portable bundle without the DuckDB native — `@duckdb/node-api` is an optional peer loaded lazily, so canvas tools report an actionable install hint and every other tool works normally. MCPB is stdio-only — HTTP and Cloudflare Workers deployments are unaffected. Consumers who don't need it can delete `manifest.json` and `.mcpbignore`; `lint:packaging` skips cleanly.
+`bun run bundle` produces a stdio `.mcpb` for Claude Desktop. Add new repo-only paths to `.mcpbignore` with a leading slash. The packer reads `.mcpbignore` and includes the root `skills/` tree when present. After packing, `scripts/clean-mcpb.ts` removes dev dependencies, dependency-shipped agent docs, platform-specific optional bindings, node-gyp intermediates, and framework build-time files. Runtime modules such as the SDK's `dist/ext/skills/` stay in the bundle.
 
 **Adding an env var requires both files:** `server.json` (registry discovery, `environmentVariables[]`) and `manifest.json` (bundle install UX, `mcp_config.env` + `user_config`). `lint:packaging` (run by `devcheck`) verifies the env var names match, that every `user_config` option is wired into `mcp_config.env` as `"X": "${user_config.X}"` (the host substitutes nothing else — `"${X}"` reaches the server as that literal string), and that an optional string option carries `"default": ""`.
 

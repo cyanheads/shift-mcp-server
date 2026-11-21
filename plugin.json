@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "shift-mcp-server",
+  "version": "0.2.0",
+  "description": "Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.",
+  "author": {
+    "name": "Casey Hand",
+    "email": "casey@caseyjhand.com",
+    "url": "https://caseyjhand.com"
+  },
+  "homepage": "https://github.com/cyanheads/shift-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/shift-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "stdio",
+    "streamable-http",
+    "multi-agent",
+    "coordination",
+    "ai-agents",
+    "agent-coordination",
+    "claude-code",
+    "typescript"
+  ]
+}

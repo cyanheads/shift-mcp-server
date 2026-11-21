@@ -37,13 +37,11 @@ export const workers = {
     return getWorkerStore().list('test').length;
   },
   set(id: string, worker: WorkerSession) {
-    db.prepare('INSERT OR REPLACE INTO workers VALUES (?, ?, ?, ?, ?)').run(
-      'test',
-      id,
-      worker.gist,
-      JSON.stringify(worker.files),
-      worker.checkedInAt,
-    );
+    db.prepare(
+      `INSERT INTO workers (workspace, workerId, gist, files, checkedInAt) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (workspace, workerId) DO UPDATE
+       SET gist = excluded.gist, files = excluded.files, checkedInAt = excluded.checkedInAt`,
+    ).run('test', id, worker.gist, JSON.stringify(worker.files), worker.checkedInAt);
   },
 };
 afterAll(() => {

@@ -1,6 +1,6 @@
 # shift-mcp-server - Directory Structure
 
-Generated on: 2026-10-17 22:35:35
+Generated on: 2026-11-21 16:53:50
 
 ```text
 shift-mcp-server/
@@ -37,6 +37,8 @@ shift-mcp-server/
 │   ├── add-resource/
 │   │   └── SKILL.md
 │   ├── add-service/
+│   │   └── SKILL.md
+│   ├── add-skill/
 │   │   └── SKILL.md
 │   ├── add-test/
 │   │   └── SKILL.md
@@ -134,6 +136,9 @@ shift-mcp-server/
 │   ├── prune-musl-packages.ts
 │   ├── release-github.ts
 │   └── tree.ts
+├── skills/
+│   └── shift-guide/
+│       └── SKILL.md
 ├── src/
 │   ├── config/
 │   │   └── server-config.ts
@@ -142,12 +147,16 @@ shift-mcp-server/
 │   │   │   └── definitions/
 │   │   │       ├── status.resource.ts
 │   │   │       └── workspace-status.resource.ts
-│   │   └── tools/
-│   │       └── definitions/
-│   │           ├── check-in.tool.ts
-│   │           └── check-out.tool.ts
+│   │   ├── tools/
+│   │   │   └── definitions/
+│   │   │       ├── check-in.tool.ts
+│   │   │       ├── check-out.tool.ts
+│   │   │       └── file-overlaps.ts
+│   │   └── roster-format.ts
 │   ├── services/
 │   │   └── worker-store/
+│   │       ├── process-ownership.ts
+│   │       ├── roster-schema.ts
 │   │       └── worker-store.ts
 │   └── index.ts
 ├── tests/
@@ -155,6 +164,7 @@ shift-mcp-server/
 │   │   └── shift-tools.fuzz.test.ts
 │   ├── integration/
 │   │   ├── notifications.int.test.ts
+│   │   ├── project-workspace.int.test.ts
 │   │   ├── shift-contract.int.test.ts
 │   │   └── worker-process.int.test.ts
 │   ├── resources/
@@ -182,7 +192,9 @@ shift-mcp-server/
 ├── Dockerfile
 ├── LICENSE
 ├── manifest.json
+├── mcp.json
 ├── package.json
+├── plugin.json
 ├── README.md
 ├── server.json
 ├── tsconfig.build.json

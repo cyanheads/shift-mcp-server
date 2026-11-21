@@ -17,7 +17,7 @@
       "environmentVariables": [
         {
           "name": "SHIFT_WORKSPACE",
-          "description": "Shared exact-match workspace namespace; defaults to the launch Git root or cwd.",
+          "description": "Exact-match workspace override. Defaults to the real Git root of CLAUDE_PROJECT_DIR or the launch directory, or the real directory itself outside Git.",
           "format": "string",
           "isRequired": false
         },

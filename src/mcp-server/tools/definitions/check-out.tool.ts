@@ -4,6 +4,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { formatSummary, singleLine } from '@/mcp-server/roster-format.js';
 import {
   getWorkerStore,
   notifyWorkspace,
@@ -28,7 +29,10 @@ export const checkOut = tool('shift_check_out', {
       .regex(WORKER_ID_PATTERN)
       .toUpperCase()
       .describe('Your six ASCII letter/digit worker ID received at check-in; case is ignored.'),
-    summary: z.string().optional().describe('One sentence describing what was accomplished.'),
+    summary: z
+      .string()
+      .optional()
+      .describe('One sentence about what was accomplished, shared with active peers.'),
   }),
   output: z.object({
     workspace: z.string().describe('Resolved workspace identifier.'),
@@ -42,7 +46,7 @@ export const checkOut = tool('shift_check_out', {
     ctx.signal.throwIfAborted();
     const workspace = resolveWorkspace(input.workspace);
     const uri = statusUri(workspace);
-    const existed = getWorkerStore().checkOut(workspace, input.workerId);
+    const existed = getWorkerStore().checkOut(workspace, input.workerId, input.summary);
     ctx.log.info(existed ? 'Worker checked out' : 'Worker already checked out (no-op)', {
       workerId: input.workerId,
     });
@@ -60,8 +64,8 @@ export const checkOut = tool('shift_check_out', {
     let text = result.removed
       ? `Checked out Worker ${result.workerId}. Session ended.`
       : `No active session for Worker ${result.workerId}; already checked out or unknown. Read ${result.statusUri} to inspect active workers.`;
-    text += `\nWorkspace: ${result.workspace}\nStatus: ${result.statusUri}\nRemoved: ${result.removed}`;
-    if (result.summary) text += `\nSummary: ${result.summary}`;
+    text += `\nWorkspace: ${singleLine(result.workspace)}\nStatus: ${result.statusUri}\nRemoved: ${result.removed}`;
+    if (result.summary !== undefined) text += `\nSummary: ${formatSummary(result.summary)}`;
     return [{ type: 'text', text }];
   },
 });

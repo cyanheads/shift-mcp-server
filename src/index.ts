@@ -22,6 +22,7 @@ await createApp({
   sessionMode: 'stateless',
   tools: [checkIn, checkOut],
   resources: [statusResource, workspaceStatusResource],
+  skills: 'skills',
   setup(core) {
     initializeWorkerStore({
       ...getServerConfig(),

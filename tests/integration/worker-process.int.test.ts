@@ -42,6 +42,91 @@ async function processCall(body: string) {
   return JSON.parse(result.stdout);
 }
 
+function seedLegacyRoster(): void {
+  const db = new DatabaseSync(join(directory, 'roster.sqlite'));
+  try {
+    db.exec(`
+      CREATE TABLE workers (
+        workspace TEXT NOT NULL, workerId TEXT NOT NULL, gist TEXT NOT NULL,
+        files TEXT NOT NULL, checkedInAt TEXT NOT NULL,
+        PRIMARY KEY (workspace, workerId)
+      );
+      INSERT INTO workers VALUES ('a', 'OLD001', 'legacy', '["old.ts"]', '2026-03-23T14:30:00.000Z');
+    `);
+  } finally {
+    db.close();
+  }
+}
+
+it.each(['fresh', 'legacy'] as const)('opens a %s database concurrently', async (kind) => {
+  if (kind === 'legacy') seedLegacyRoster();
+  const [first, second] = await Promise.all([
+    processCall("console.log(JSON.stringify(store.checkIn('a', {gist:'first'})))"),
+    processCall("console.log(JSON.stringify(store.checkIn('a', {gist:'second'})))"),
+  ]);
+  expect(first.session.workerId).not.toBe(second.session.workerId);
+  const store = new WorkerStore(directory);
+  try {
+    expect(store.checkOut('a', first.session.workerId, 'finished')).toBe(true);
+    const snapshot = store.status('a');
+    expect(snapshot.activeWorkers.map(({ gist }) => gist)).toEqual(
+      kind === 'legacy' ? ['legacy', 'second'] : ['second'],
+    );
+    expect(snapshot.recentlyFinished[0]).toMatchObject({ gist: 'first', summary: 'finished' });
+    if (kind === 'legacy') {
+      expect(snapshot.activeWorkers[0]).toEqual({
+        workerId: 'OLD001',
+        gist: 'legacy',
+        files: ['old.ts'],
+        checkedInAt: '2026-03-23T14:30:00.000Z',
+      });
+      const adopted = store.checkIn('a', { workerId: 'OLD001', gist: 'adopted' });
+      expect(adopted.session).toMatchObject({
+        files: ['old.ts'],
+        checkedInAt: '2026-03-23T14:30:00.000Z',
+        lastSeenAt: expect.any(String),
+      });
+      expect(adopted.recentlyFinished[0]?.gist).toBe('first');
+    }
+  } finally {
+    store.close();
+  }
+});
+
+it('keeps positional v0.2.0 writes usable and invalidates stale activity', () => {
+  seedLegacyRoster();
+  const store = new WorkerStore(directory);
+  const old = new DatabaseSync(join(directory, 'roster.sqlite'));
+  try {
+    const first = store.checkIn('a', { workerId: 'OLD001', gist: 'adopted' });
+    expect(first.session?.lastSeenAt).toBeDefined();
+    const second = store.checkIn('a', { gist: 'leaving' }).session!;
+    expect(store.checkOut('a', second.workerId, '')).toBe(true);
+    expect(store.status('a').recentlyFinished[0]?.summary).toBe('');
+    old.exec(`
+      BEGIN IMMEDIATE;
+      INSERT INTO workers VALUES ('a', 'OLD002', 'new via old', '[]', '2026-03-23T14:30:00.000Z');
+      UPDATE workers SET gist = 'updated via old', files = '["legacy.ts"]'
+        WHERE workspace = 'a' AND workerId = 'OLD001';
+      COMMIT;
+    `);
+    expect(store.list('a').find(({ workerId }) => workerId === 'OLD001')).toEqual({
+      workerId: 'OLD001',
+      checkedInAt: '2026-03-23T14:30:00.000Z',
+      gist: 'updated via old',
+      files: ['legacy.ts'],
+    });
+    old.exec("DELETE FROM workers WHERE workspace = 'a' AND workerId = 'OLD001'");
+    expect(store.status('a')).toEqual({
+      activeWorkers: [expect.objectContaining({ workerId: 'OLD002' })],
+      recentlyFinished: [],
+    });
+  } finally {
+    old.close();
+    store.close();
+  }
+});
+
 it.each([
   { transaction: 'BEGIN; SELECT * FROM seed', release: true },
   { transaction: 'BEGIN IMMEDIATE; UPDATE seed SET value=2', release: true },
@@ -57,7 +142,7 @@ it.each([
       'bun',
       [
         '--eval',
-        `import {DatabaseSync} from 'node:sqlite'; const db=new DatabaseSync(process.argv[1]); db.exec(process.argv[2]); console.log('locked'); process.stdin.once('data',()=>setTimeout(()=>{ db.exec('ROLLBACK'); db.close(); process.exit(0); },250));`,
+        `import {DatabaseSync} from 'node:sqlite'; const db=new DatabaseSync(process.argv[1]); db.exec(process.argv[2]); process.once('SIGTERM',()=>{db.exec('ROLLBACK'); db.close(); process.exit(0);}); process.stdin.resume(); console.log('locked');`,
         filename,
         transaction,
       ],
@@ -73,7 +158,7 @@ it.each([
         });
         child.once('error', reject);
       });
-      if (release) child.stdin.write('release after delay');
+      if (release) child.kill('SIGTERM');
       const started = performance.now();
       if (release) {
         const store = new WorkerStore(directory);
@@ -88,7 +173,7 @@ it.each([
       }
       expect(performance.now() - started).toBeLessThan(4_500);
     } finally {
-      child.kill('SIGTERM');
+      if (child.exitCode === null) child.kill('SIGTERM');
       await exited;
     }
   },
@@ -111,6 +196,166 @@ it('shares persisted state across independent processes and isolates namespaces'
     files: ['a.ts'],
     checkedInAt: first.session.checkedInAt,
   });
+});
+
+it('updates a persisted session across process exits and honors explicit file clearing', async () => {
+  const { session } = await processCall(
+    "console.log(JSON.stringify(store.checkIn('a', {gist:'first', files:['a.ts']})))",
+  );
+  const { session: patched } = await processCall(
+    `console.log(JSON.stringify(store.checkIn('a', {workerId:${JSON.stringify(session.workerId)}, gist:'resumed', files:[]})))`,
+  );
+  expect(patched).toMatchObject({
+    workerId: session.workerId,
+    gist: 'resumed',
+    files: [],
+    checkedInAt: session.checkedInAt,
+  });
+  expect(await processCall("console.log(JSON.stringify(store.list('b')))")).toEqual([]);
+});
+
+it('marks a departed peer and clears the marker when another process re-adopts it', async () => {
+  const { session } = await processCall(
+    "console.log(JSON.stringify(store.checkIn('a', {gist:'first', files:['a.ts']})))",
+  );
+  const store = new WorkerStore(directory);
+  try {
+    expect(store.list('a')[0]).toMatchObject({
+      workerId: session.workerId,
+      lastSeenAt: session.checkedInAt,
+      ...(process.platform === 'darwin' || process.platform === 'linux' ? { orphaned: true } : {}),
+    });
+    const adopted = store.checkIn('a', { workerId: session.workerId, gist: 'resumed' });
+    expect(adopted.session).toMatchObject({
+      workerId: session.workerId,
+      files: ['a.ts'],
+      checkedInAt: session.checkedInAt,
+      lastSeenAt: expect.any(String),
+    });
+    expect(adopted.activeWorkers[0]?.orphaned).toBeUndefined();
+  } finally {
+    store.close();
+  }
+});
+
+it('leaves a foreign or unprobeable owner unmarked', async () => {
+  const { session } = await processCall(
+    "console.log(JSON.stringify(store.checkIn('a', {gist:'first'})))",
+  );
+  const store = new WorkerStore(directory);
+  const db = new DatabaseSync(join(directory, 'roster.sqlite'));
+  try {
+    const probe = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('access denied'), { code: 'EPERM' });
+    });
+    try {
+      expect(store.list('a')[0]?.orphaned).toBeUndefined();
+      probe.mockClear();
+      db.exec("UPDATE worker_activity SET ownerScope = 'another-namespace'");
+      expect(store.list('a')[0]).toMatchObject({
+        workerId: session.workerId,
+        lastSeenAt: session.checkedInAt,
+      });
+      expect(store.list('a')[0]?.orphaned).toBeUndefined();
+      expect(probe).not.toHaveBeenCalled();
+    } finally {
+      probe.mockRestore();
+    }
+  } finally {
+    db.close();
+    store.close();
+  }
+});
+
+it.runIf(process.platform === 'darwin' || process.platform === 'linux')(
+  'uses one roster snapshot when another connection checks a peer out during the read',
+  async () => {
+    const { session } = await processCall(
+      "console.log(JSON.stringify(store.checkIn('a', {gist:'leaving'})))",
+    );
+    const reader = new WorkerStore(directory);
+    const writer = new WorkerStore(directory);
+    try {
+      writer.checkIn('a', { gist: 'staying' });
+      const kill = process.kill;
+      const probe = vi.spyOn(process, 'kill').mockImplementationOnce((pid, signal) => {
+        expect(writer.checkOut('a', session.workerId, 'done')).toBe(true);
+        return kill(pid, signal);
+      });
+      try {
+        const duringCheckout = reader.status('a');
+        expect(probe).toHaveBeenCalledOnce();
+        expect(duringCheckout.activeWorkers).toHaveLength(2);
+        expect(duringCheckout.recentlyFinished).toEqual([]);
+        expect(reader.status('a')).toEqual({
+          activeWorkers: [expect.objectContaining({ gist: 'staying' })],
+          recentlyFinished: [expect.objectContaining({ gist: 'leaving', summary: 'done' })],
+        });
+      } finally {
+        probe.mockRestore();
+      }
+    } finally {
+      writer.close();
+      reader.close();
+    }
+  },
+);
+
+it('uses original join order for handoffs at the same timestamp and prunes departed peers', () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-21T12:00:00.000Z'));
+  const store = new WorkerStore(directory);
+  try {
+    const older = store.checkIn('a', { gist: 'older' }).session!;
+    const leaving = store.checkIn('a', { gist: 'leaving', files: ['a.ts'] }).session!;
+    store.checkIn('a', { workerId: leaving.workerId, gist: 'updated first departure' });
+    expect(store.checkOut('a', leaving.workerId, 'done')).toBe(true);
+    expect(store.checkOut('a', leaving.workerId, 'no-op')).toBe(false);
+    const firstDeparture = {
+      workerId: leaving.workerId,
+      gist: 'updated first departure',
+      files: ['a.ts'],
+      summary: 'done',
+      checkedOutAt: older.checkedInAt,
+    };
+    const newcomer = store.checkIn('a', { gist: 'newcomer' });
+    expect(newcomer.recentlyFinished).toEqual([]);
+    expect(
+      store.checkIn('a', { workerId: older.workerId, gist: 'updated' }).recentlyFinished,
+    ).toEqual([firstDeparture]);
+    expect(store.status('a').recentlyFinished).toEqual([firstDeparture]);
+    expect(store.status('b')).toEqual({ activeWorkers: [], recentlyFinished: [] });
+    store.checkOut('a', older.workerId);
+    expect(store.status('a').recentlyFinished).toEqual([
+      { workerId: older.workerId, gist: 'updated', files: [], checkedOutAt: older.checkedInAt },
+    ]);
+    store.checkOut('a', newcomer.session!.workerId);
+    expect(store.status('a')).toEqual({ activeWorkers: [], recentlyFinished: [] });
+  } finally {
+    store.close();
+    vi.useRealTimers();
+  }
+});
+
+it('rolls back removal and pruning if writing the departure fails', () => {
+  const store = new WorkerStore(directory);
+  const db = new DatabaseSync(join(directory, 'roster.sqlite'));
+  try {
+    const older = store.checkIn('a', { gist: 'older' }).session!;
+    const leaving = store.checkIn('a', { gist: 'leaving' }).session!;
+    store.checkOut('a', leaving.workerId);
+    store.checkIn('a', { gist: 'newer' });
+    const before = store.status('a');
+    db.exec(`
+      CREATE TRIGGER fail_departure BEFORE INSERT ON departures
+        BEGIN SELECT RAISE(ABORT, 'test failure'); END;
+    `);
+    expect(() => store.checkOut('a', older.workerId)).toThrow('test failure');
+    expect(store.status('a')).toEqual(before);
+  } finally {
+    db.close();
+    store.close();
+  }
 });
 
 it('serializes concurrent creates, updates and removals without lost unrelated writes', async () => {

@@ -147,6 +147,13 @@ it('delivers legacy and modern mutations once, only to matching workspace subscr
       capabilities: {},
       clientInfo: { name: 'legacy', version: '1' },
     });
+    const resources = await post('resources/list', {}, legacy.session);
+    const guide = resources.body.result.resources.find(
+      (resource: { uri: string }) => resource.uri === 'skill://shift-guide/SKILL.md',
+    );
+    expect(guide).toBeDefined();
+    const guideRead = await post('resources/read', { uri: guide.uri }, legacy.session);
+    expect(guideRead.body.result.contents[0].text).toContain('name: shift-guide');
     const qualified = await listen('shift://status?workspace=other');
     const bare = await listen('shift://status');
     const unmatched = await listen('shift://status?workspace=unrelated');

@@ -4,8 +4,8 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
+import { formatWorkersTable } from '@/mcp-server/roster-format.js';
 import {
-  formatWorkersTable,
   generateWorkerId,
   getWorkerStore,
   WORKER_ID_PATTERN,
@@ -79,10 +79,10 @@ describe('formatWorkersTable', () => {
     const lines = formatWorkersTable([session]).split('\n');
 
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toBe('| Worker | Checked In | Working On | Files |');
-    expect(lines[1]).toBe('|--------|------------|------------|-------|');
+    expect(lines[0]).toBe('| Worker | Checked In | Working On | Files | Last Seen |');
+    expect(lines[1]).toBe('|--------|------------|------------|-------|-----------|');
     expect(lines[2]).toBe(
-      '| ABC123 | 2026-03-23T14:30:00Z | Refactoring auth module | src/auth.ts |',
+      '| ABC123 | 2026-03-23T14:30:00Z | Refactoring auth module | src/auth.ts | — |',
     );
   });
 

@@ -4,21 +4,18 @@
  */
 
 import { resource } from '@cyanheads/mcp-ts-core';
-import {
-  formatWorkersTable,
-  getWorkerStore,
-  resolveWorkspace,
-} from '@/services/worker-store/worker-store.js';
+import { formatRoster } from '@/mcp-server/roster-format.js';
+import { getWorkerStore, resolveWorkspace } from '@/services/worker-store/worker-store.js';
 
 export const statusResource = resource('shift://status', {
   name: 'Active Workers',
-  description:
-    'All currently active workers with their gists, declared files, and check-in timestamps.',
+  description: 'Active workers and recent handoffs in the default workspace.',
   mimeType: 'text/markdown',
 
-  handler() {
-    const workers = getWorkerStore().list(resolveWorkspace());
-    return `## Active Workers (${workers.length})\n${formatWorkersTable(workers)}`;
+  handler(_params, ctx) {
+    ctx.signal.throwIfAborted();
+    const { activeWorkers, recentlyFinished } = getWorkerStore().status(resolveWorkspace());
+    return formatRoster(activeWorkers, recentlyFinished);
   },
 
   format: (text, meta) => [{ uri: meta.uri.href, text: text as string, mimeType: meta.mimeType }],

@@ -36,7 +36,7 @@
     }
   },
   "userConfig": {
-    "workspace": { "type": "string", "title": "Workspace", "description": "Shared exact-match namespace for agents working on one project.", "required": true },
+    "workspace": { "type": "string", "title": "Workspace", "description": "Optional exact-match namespace. Leave blank to use the real Git root of the Claude Code project, or the project directory outside Git.", "default": "" },
     "state_dir": { "type": "string", "title": "State directory", "description": "Shared writable local SQLite directory; blank uses ~/.local/state/shift-mcp-server.", "default": "" }
   }
 }

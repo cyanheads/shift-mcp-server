@@ -1,5 +1,5 @@
 /**
- * @fileoverview Durable workspace rosters and Markdown presentation.
+ * @fileoverview Durable workspace rosters and committed snapshots.
  * @module services/worker-store/worker-store
  */
 
@@ -7,15 +7,44 @@ import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { z } from '@cyanheads/mcp-ts-core';
 import { validationError } from '@cyanheads/mcp-ts-core/errors';
+import { ownerHasExited, processScope } from './process-ownership.js';
+import { initializeRosterSchema } from './roster-schema.js';
 
 /** A single active working session. */
 export interface WorkerSession {
   checkedInAt: string;
   files: string[];
   gist: string;
+  lastSeenAt?: string | undefined;
+  orphaned?: true | undefined;
   workerId: string;
 }
+
+/** Final declaration for a worker that checked out while a peer was active. */
+export interface FinishedWorker {
+  checkedOutAt: string;
+  files: string[];
+  gist: string;
+  summary?: string | undefined;
+  workerId: string;
+}
+
+const declarationRow = z.object({ workerId: z.string(), gist: z.string(), files: z.string() });
+const activeRow = declarationRow.extend({
+  checkedInAt: z.string(),
+  lastSeenAt: z.string().nullable(),
+  ownerScope: z.string().nullable(),
+  ownerPid: z.number().int().nullable(),
+});
+const checkoutRow = declarationRow.pick({ gist: true, files: true });
+const updatedRow = activeRow.pick({ checkedInAt: true, files: true });
+const finishedRow = declarationRow.extend({
+  checkedOutAt: z.string(),
+  summary: z.string().nullable(),
+});
+const filesJson = z.array(z.string());
 
 /** Six ASCII alphanumerics; schemas normalize only after this check. */
 export const WORKER_ID_PATTERN = /^[A-Za-z0-9]{6}$/;
@@ -30,29 +59,6 @@ export function generateWorkerId(): string {
     crypto.getRandomValues(new Uint8Array(6)),
     (byte) => chars[byte % chars.length],
   ).join('');
-}
-
-/** Escape presentation delimiters without changing stored domain values. */
-function escPipe(s: string): string {
-  return s
-    .replaceAll('\\', '\\\\')
-    .replaceAll('|', '\\|')
-    .replace(/\r\n|[\r\n]/g, ' ');
-}
-
-/** Format worker sessions as a markdown table, oldest check-in first. */
-export function formatWorkersTable(sessions: WorkerSession[]): string {
-  if (sessions.length === 0) return 'No agents are currently active.';
-
-  const rows = [...sessions]
-    .sort((a, b) => a.checkedInAt.localeCompare(b.checkedInAt))
-    .map(
-      (w) =>
-        `| ${w.workerId} | ${w.checkedInAt} | ${escPipe(w.gist)} | ${escPipe(w.files.join(', ')) || '—'} |`,
-    )
-    .join('\n');
-
-  return `| Worker | Checked In | Working On | Files |\n|--------|------------|------------|-------|\n${rows}`;
 }
 
 /** Canonical resource URI for an opaque workspace identifier. */
@@ -75,6 +81,7 @@ export function deriveWorkspace(cwd = process.cwd()): string {
 /** SQLite commits a mutation and its returned roster under one writer lock. */
 export class WorkerStore {
   private readonly db: DatabaseSync;
+  private readonly ownerScope = processScope();
 
   constructor(stateDir: string) {
     mkdirSync(stateDir, { recursive: true, mode: 0o700 });
@@ -85,12 +92,8 @@ export class WorkerStore {
         const remaining = Math.max(0, Math.floor(deadline - performance.now()));
         this.db.exec(`PRAGMA busy_timeout=${remaining}`);
         try {
-          this.db.exec(`PRAGMA journal_mode=WAL;
-            CREATE TABLE IF NOT EXISTS workers (
-              workspace TEXT NOT NULL, workerId TEXT NOT NULL, gist TEXT NOT NULL,
-              files TEXT NOT NULL, checkedInAt TEXT NOT NULL,
-              PRIMARY KEY (workspace, workerId)
-            );`);
+          this.db.exec('PRAGMA journal_mode=WAL');
+          initializeRosterSchema(this.db, deadline);
           break;
         } catch (error) {
           const wait = Math.min(25, deadline - performance.now());
@@ -119,15 +122,28 @@ export class WorkerStore {
   list(workspace: string): WorkerSession[] {
     return this.db
       .prepare(
-        'SELECT workerId, gist, files, checkedInAt FROM workers WHERE workspace = ? ORDER BY checkedInAt, workerId',
+        `SELECT workerId, gist, files, checkedInAt, lastSeenAt, ownerScope, ownerPid
+         FROM workers JOIN worker_activity USING (workspace, workerId)
+         WHERE workspace = ? ORDER BY checkedInAt, workerId`,
       )
       .all(workspace)
-      .map((row) => ({
-        workerId: row.workerId as string,
-        gist: row.gist as string,
-        files: JSON.parse(row.files as string) as string[],
-        checkedInAt: row.checkedInAt as string,
-      }));
+      .map((raw): WorkerSession => {
+        const { files, lastSeenAt, ownerScope, ownerPid, ...session } = activeRow.parse(raw);
+        return {
+          ...session,
+          files: filesJson.parse(JSON.parse(files)),
+          ...(lastSeenAt === null ? {} : { lastSeenAt }),
+          ...(ownerHasExited(this.ownerScope, ownerScope, ownerPid) ? { orphaned: true } : {}),
+        };
+      });
+  }
+
+  /** Read the roster and eligible departures from the same committed snapshot. */
+  status(workspace: string) {
+    return this.transaction(
+      () => ({ activeWorkers: this.list(workspace), recentlyFinished: this.departures(workspace) }),
+      'BEGIN',
+    );
   }
 
   /** Create or patch a session without changing its original check-in timestamp. */
@@ -136,20 +152,38 @@ export class WorkerStore {
     input: { gist: string; files?: string[] | undefined; workerId?: string | undefined },
   ) {
     return this.transaction(() => {
-      const current = this.list(workspace);
-      let session: WorkerSession;
+      const lastSeenAt = new Date().toISOString();
+      let session: WorkerSession & { lastSeenAt: string };
       if (input.workerId) {
-        const existing = current.find((worker) => worker.workerId === input.workerId);
-        if (!existing) return { session: undefined, activeWorkers: current };
-        session = { ...existing, gist: input.gist, files: input.files ?? existing.files };
-        this.db
-          .prepare('UPDATE workers SET gist = ?, files = ? WHERE workspace = ? AND workerId = ?')
-          .run(session.gist, JSON.stringify(session.files), workspace, session.workerId);
+        const updated = this.db
+          .prepare(
+            `UPDATE workers SET gist = ?, files = COALESCE(?, files)
+             WHERE workspace = ? AND workerId = ? RETURNING checkedInAt, files`,
+          )
+          .get(
+            input.gist,
+            input.files === undefined ? null : JSON.stringify(input.files),
+            workspace,
+            input.workerId,
+          );
+        if (!updated)
+          return { session: undefined, activeWorkers: this.list(workspace), recentlyFinished: [] };
+        const { checkedInAt, files } = updatedRow.parse(updated);
+        session = {
+          workerId: input.workerId,
+          gist: input.gist,
+          checkedInAt,
+          files: filesJson.parse(JSON.parse(files)),
+          lastSeenAt,
+        };
       } else {
+        const occupied = this.db.prepare(
+          'SELECT 1 FROM workers WHERE workspace = ? AND workerId = ?',
+        );
         let workerId: string | undefined;
         for (let attempt = 0; attempt < 10; attempt++) {
           const candidate = generateWorkerId();
-          if (!current.some((worker) => worker.workerId === candidate)) {
+          if (!occupied.get(workspace, candidate)) {
             workerId = candidate;
             break;
           }
@@ -159,10 +193,13 @@ export class WorkerStore {
           workerId,
           gist: input.gist,
           files: input.files ?? [],
-          checkedInAt: new Date().toISOString(),
+          checkedInAt: lastSeenAt,
+          lastSeenAt,
         };
         this.db
-          .prepare('INSERT INTO workers VALUES (?, ?, ?, ?, ?)')
+          .prepare(
+            'INSERT INTO workers (workspace, workerId, gist, files, checkedInAt) VALUES (?, ?, ?, ?, ?)',
+          )
           .run(
             workspace,
             session.workerId,
@@ -171,22 +208,72 @@ export class WorkerStore {
             session.checkedInAt,
           );
       }
-      return { session, activeWorkers: this.list(workspace) };
+      this.db
+        .prepare(
+          `UPDATE worker_activity SET lastSeenAt = ?, ownerScope = ?, ownerPid = ?
+           WHERE workspace = ? AND workerId = ?`,
+        )
+        .run(lastSeenAt, this.ownerScope ?? null, process.pid, workspace, session.workerId);
+      return {
+        session,
+        activeWorkers: this.list(workspace),
+        recentlyFinished: this.departures(workspace, session.workerId),
+      };
     });
   }
 
   /** Return the actual deletion outcome, retaining idempotent success. */
-  checkOut(workspace: string, workerId: string): boolean {
-    return this.transaction(
-      () =>
-        this.db
-          .prepare('DELETE FROM workers WHERE workspace = ? AND workerId = ?')
-          .run(workspace, workerId).changes > 0,
-    );
+  checkOut(workspace: string, workerId: string, summary?: string): boolean {
+    return this.transaction(() => {
+      const removed = this.db
+        .prepare('DELETE FROM workers WHERE workspace = ? AND workerId = ? RETURNING gist, files')
+        .get(workspace, workerId);
+      if (!removed) return false;
+      const { gist, files } = checkoutRow.parse(removed);
+      this.db.exec('UPDATE roster_order SET lastEvent = lastEvent + 1 WHERE singleton = 1');
+      this.db
+        .prepare(
+          `INSERT INTO departures
+             (workspace, departedOrder, workerId, gist, files, summary, checkedOutAt)
+           SELECT ?, lastEvent, ?, ?, ?, ?, ? FROM roster_order
+           WHERE singleton = 1 AND EXISTS (SELECT 1 FROM worker_activity WHERE workspace = ?)`,
+        )
+        .run(
+          workspace,
+          workerId,
+          gist,
+          files,
+          summary ?? null,
+          new Date().toISOString(),
+          workspace,
+        );
+      return true;
+    });
   }
 
-  private transaction<T>(run: () => T): T {
-    this.db.exec('BEGIN IMMEDIATE');
+  private departures(workspace: string, workerId: string | null = null): FinishedWorker[] {
+    return this.db
+      .prepare(
+        `SELECT workerId, gist, files, summary, checkedOutAt FROM departures
+         WHERE workspace = ? AND departedOrder > (
+           SELECT MIN(joinedOrder) FROM worker_activity WHERE workspace = ?
+             AND (? IS NULL OR workerId = ?)
+         )
+         ORDER BY departedOrder`,
+      )
+      .all(workspace, workspace, workerId, workerId)
+      .map((raw) => {
+        const { files, summary, ...departure } = finishedRow.parse(raw);
+        return {
+          ...departure,
+          files: filesJson.parse(JSON.parse(files)),
+          ...(summary === null ? {} : { summary }),
+        };
+      });
+  }
+
+  private transaction<T>(run: () => T, begin: 'BEGIN' | 'BEGIN IMMEDIATE' = 'BEGIN IMMEDIATE'): T {
+    this.db.exec(begin);
     let committed = false;
     try {
       const result = run();

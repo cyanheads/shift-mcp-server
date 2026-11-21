@@ -44,7 +44,7 @@ describe('statusResource', () => {
       const result = await read();
 
       expect(result).toContain('## Active Workers (1)');
-      expect(result).toContain('| Worker | Checked In | Working On | Files |');
+      expect(result).toContain('| Worker | Checked In | Working On | Files | Last Seen |');
       expect(result).toContain(worker.workerId);
       expect(result).toContain(worker.gist);
       expect(result).toContain(worker.checkedInAt);

@@ -126,7 +126,7 @@ describe('shift_check_in', () => {
   });
 
   describe('unknown worker', () => {
-    it('throws not-found and lists the active workers so the agent can self-identify', async () => {
+    it('throws not-found with the selected roster and recovery guidance', async () => {
       const active = await checkIn.handler(parse({ gist: 'Live session' }), ctx);
 
       expect(() => checkIn.handler(parse({ gist: 'Anything', workerId: 'ZZZZZZ' }), ctx)).toThrow(
@@ -138,12 +138,12 @@ describe('shift_check_in', () => {
         expect.unreachable('expected shift_check_in to throw for an unknown worker ID');
       } catch (error) {
         const err = error as { message: string; data?: Record<string, unknown> };
-        expect(err.message).toContain('Omit workerId to start a new session.');
+        expect(err.message).toContain('not found in the selected workspace');
         expect(err.message).toContain('## Active Workers');
         expect(err.message).toContain(active.workerId);
         expect(err.data?.reason).toBe('unknown_worker');
         expect(err.data?.recovery).toEqual({
-          hint: 'Omit workerId to start a new session, or reuse an ID from the active workers table.',
+          hint: expect.stringContaining('your own saved or confirmed workerId'),
         });
       }
     });
@@ -195,9 +195,23 @@ describe('shift_check_in', () => {
       const text = rendered(second);
 
       expect(text).not.toContain('first to check in');
-      expect(text).toContain('| Worker | Checked In | Working On | Files |');
+      expect(text).toContain('| Worker | Checked In | Working On | Files | Last Seen |');
       expect(text).toContain(first.workerId);
       expect(text).toContain(second.workerId);
+    });
+
+    it('marks a confirmed orphan alongside its timestamp in the worker row', async () => {
+      const first = await checkIn.handler(parse({ gist: 'older claim' }), ctx);
+      const second = await checkIn.handler(parse({ gist: 'current claim' }), ctx);
+      const lastSeenAt = '2026-03-23T09:00:00.000Z';
+      const text = rendered({
+        ...second,
+        activeWorkers: [{ ...first, lastSeenAt, orphaned: true }, second],
+      });
+      expect(text).toContain(
+        `| ${first.workerId} (orphaned) | ${first.checkedInAt} | older claim | — | ${lastSeenAt} |`,
+      );
+      expect(text).toContain(`| ${second.workerId} | ${second.checkedInAt} | current claim |`);
     });
   });
 });

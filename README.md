@@ -1,13 +1,13 @@
 <div align="center">
   <h1>@cyanheads/shift-mcp-server</h1>
   <p><b>Lightweight coordination layer for multiple AI agents working on the same codebase simultaneously.</b>
-  <div>2 Tools • 1 Resource • 1 Resource Template</div>
+  <div>2 Tools • 1 Roster Resource • 1 Roster Resource Template • 1 Skill</div>
   </p>
 </div>
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.2.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.3.1-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/shift-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/shift-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.3%2B-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.2.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.4.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/shift-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/shift-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.4%2B-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -29,25 +29,30 @@ Coordination layer for multiple AI agents working on the same codebase at once. 
 
 | Tool | Description |
 |:---|:---|
-| `shift_check_in` | Register or update a worker session. Returns a worker ID, the coordination protocol, and the active peers. |
-| `shift_check_out` | End a working session and remove it from the active worker list. |
+| `shift_check_in` | Register or update a session. Returns the worker ID, active peers, declared-file overlaps, and recent check-out handoffs. |
+| `shift_check_out` | Remove an active session and leave its final declaration and optional summary for peers. |
 
 ### Resources
 
 | Resource | Description |
 |:---|:---|
-| `shift://status` | All currently active workers with their gists, declared files, and check-in timestamps. |
-| `shift://status{?workspace}` | The roster for an explicit workspace; use the `statusUri` returned by either tool. |
+| `shift://status` | Active workers and recent handoffs in the server's default workspace. |
+| `shift://status{?workspace}` | Active workers and recent handoffs for a selected workspace. Use the `statusUri` returned by either tool. |
 
 The same roster is returned inline by `shift_check_in`. Modern `subscriptions/listen` streams receive one update per committed check-in, session update, or actual removal at the workspace-qualified URI; the bare alias is also published for the server's default workspace. Mutations from either protocol era publish through the same server event bus. This framework's legacy delivery adapter requires polling; that limitation is not inherent to the 2025 protocol. Notifications stay within one process; reads always observe committed state from other processes.
+
+### Skill
+
+[`shift-guide`](./skills/shift-guide/SKILL.md) covers shared edits, interrupted sessions, and handoffs. The guide ships with plugin, desktop bundle, npm, and Docker installs. MCP clients can discover it through the Skills extension or read `skill://shift-guide/SKILL.md`.
 
 ## Capability reference
 
 ### `shift_check_in` <sub>tool</sub>
 
 - Required `gist` plus optional `files`, `workspace`, and `workerId` (six ASCII letters/digits, case-insensitive) to update a session. IDs are stored and returned uppercase.
-- Returns your session, `activeWorkers`, resolved `workspace`, and qualified `statusUri`. Updates preserve omitted files and the original `checkedInAt`; an explicit empty `files` array clears the declaration.
-- The coordination protocol and applicable solo-worker notice are delivered once as `notice` in structured output and as a text trailer.
+- Returns your session, `activeWorkers`, resolved `workspace`, and qualified `statusUri`. Each check-in updates `lastSeenAt`. Updates preserve omitted files and the original `checkedInAt`. Pass `files: []` to clear the declaration.
+- Declare repo-relative file paths. `overlaps` lists normalized files you share with active peers and the corresponding worker IDs. The comparison is lexical. An absolute workspace ID lets paths inside that root match equivalent relative paths. The original declarations stay intact.
+- `recentlyFinished` contains handoffs recorded after your original check-in. The coordination protocol and applicable solo, orphan, and overlap guidance appear as `notice` in structured output and as a text trailer.
 - An unknown `workerId` fails with reason `unknown_worker` (NotFound), a recovery hint, and the current roster.
 
 ---
@@ -56,16 +61,16 @@ The same roster is returned inline by `shift_check_in`. Modern `subscriptions/li
 
 - Required `workerId` (six ASCII letters/digits, case-insensitive), optional `workspace` and one-sentence `summary`.
 - Returns `removed`, resolved `workspace`, qualified `statusUri`, and the ID/summary. An unknown or already-removed ID succeeds with `removed: false` and points to that roster without guessing why the ID is absent.
-- Publishes a resource update only when a session actually existed and was removed.
+- An actual removal records the final gist, files, optional summary, and check-out time for peers that were already active. Only an actual removal publishes a resource update.
 
 ---
 
 ### `shift://status` <sub>resource</sub>
 
-- Returns `text/markdown` — the active-workers table, or "No agents are currently active." when the roster is empty
-- `workerId` comes from `shift_check_in`
+- Returns `text/markdown` with the active roster and any handoffs visible to its oldest active session.
+- An orphan marker means the server confirmed the owning process was gone in the same PID namespace. Older records, owners outside that namespace, and inconclusive probes can leave ownership unverified. A running shared HTTP server cannot detect individual agent disconnects. Confirm a claim is stale before clearing it with `shift_check_out`.
 - The bare resource reads the process default workspace. The qualified template reads the exact identifier encoded in its URI.
-- Table cells escape backslashes and pipes and flatten CRLF/LF/CR; stored values and structured output remain unchanged.
+- Text output flattens CRLF, LF, and CR in gist and file displays. Table cells also escape backslashes and pipes. Stored declarations and structured fields retain their original values.
 
 ## Features
 
@@ -97,8 +102,7 @@ Add the following to your MCP client configuration file:
       "args": ["@cyanheads/shift-mcp-server@latest"],
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio",
-        "MCP_LOG_LEVEL": "info",
-        "SHIFT_WORKSPACE": "my-project"
+        "MCP_LOG_LEVEL": "info"
       }
     }
   }
@@ -116,8 +120,7 @@ Or with npx (no Bun required):
       "args": ["-y", "@cyanheads/shift-mcp-server@latest"],
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio",
-        "MCP_LOG_LEVEL": "info",
-        "SHIFT_WORKSPACE": "my-project"
+        "MCP_LOG_LEVEL": "info"
       }
     }
   }
@@ -144,11 +147,13 @@ Or with Docker:
 }
 ```
 
-Set the same `SHIFT_WORKSPACE` and use the same state directory for every agent working together. Native processes for one OS user share `~/.local/state/shift-mcp-server` by default. An explicit identifier is opaque and exact-match: `my-project` and `/path/my-project` are different namespaces. Native and Docker clients can share a roster by bind-mounting the native state directory into the container instead of using a named volume.
+Agents coordinating on one project need the same workspace and state directory. Native processes for one OS user share `~/.local/state/shift-mcp-server` by default. To share a roster with a container, bind-mount the native state directory and use the same explicit `SHIFT_WORKSPACE` on both sides.
 
-Without `SHIFT_WORKSPACE`, either transport uses the real path of the enclosing Git worktree root, or the launch cwd outside Git. An empty tool workspace selector uses this default too; nonempty identifiers remain exact. Launching from a subdirectory or symlink converges on the same root. Desktop clients and install badges may launch outside your project: configure `SHIFT_WORKSPACE` after installation, or pass `workspace` in every tool call. The Desktop bundle prompts for a workspace. The Codex plugin forwards `SHIFT_WORKSPACE` and `SHIFT_STATE_DIR` from your environment; the Claude plugin exposes matching configuration options.
+The server uses the enclosing real Git worktree root of `CLAUDE_PROJECT_DIR` when Claude Code supplies it, or of the launch directory. Outside Git it uses the real directory itself. Subdirectories and symlinks into the same worktree share a roster. Leave the Claude Code plugin's Workspace setting blank to use project detection. If you set Workspace in an earlier version, clear it to enable project detection.
 
-A shared HTTP process uses its own launch directory as the default; multiplexed clients must pass an explicit `workspace` for their project:
+Set `SHIFT_WORKSPACE` when your launcher or container starts outside the project. The Desktop bundle prompts for this setting. The Codex plugin forwards `SHIFT_WORKSPACE` and `SHIFT_STATE_DIR` from your environment. A nonempty tool `workspace` takes precedence over the server default. Explicit identifiers match exactly, so `my-project` and `/path/my-project` are separate workspaces.
+
+A shared HTTP server resolves one default at startup. Multiplexed clients must pass their project's `workspace` on each tool call:
 
 ```sh
 SHIFT_WORKSPACE=my-project MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 bun run start:http
@@ -157,7 +162,7 @@ SHIFT_WORKSPACE=my-project MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 bun run st
 
 ### Prerequisites
 
-- [Bun v1.4.3](https://bun.sh/) or higher (or Node.js v24+).
+- [Bun v1.4.4](https://bun.sh/) or higher (or Node.js v24+).
 - No API keys, accounts, or external services.
 
 ### Installation
@@ -195,7 +200,7 @@ WAL and `BEGIN IMMEDIATE` serialize mutations, ID allocation, and the returned r
 
 | Variable | Description | Default |
 |:---------|:------------|:--------|
-| `SHIFT_WORKSPACE` | Opaque default workspace namespace; tools can override it. | Real Git root or launch cwd |
+| `SHIFT_WORKSPACE` | Exact-match default workspace override. | Real Git root of `CLAUDE_PROJECT_DIR` or launch directory, or the real directory outside Git. |
 | `SHIFT_STATE_DIR` | Shared writable local directory containing `roster.sqlite`. | `~/.local/state/shift-mcp-server` |
 | `MCP_TRANSPORT_TYPE` | Transport: `stdio` or `http`. | `stdio` |
 | `MCP_HTTP_PORT` | Port for the HTTP server. | `3010` |
@@ -203,7 +208,7 @@ WAL and `BEGIN IMMEDIATE` serialize mutations, ID allocation, and the returned r
 | `MCP_SESSION_MODE` | HTTP session handling: `auto`, `stateful`, or `stateless`. The server declares `stateless` in `createApp()`, since no handler needs a session; setting this variable overrides that. | `stateless` |
 | `MCP_AUTH_MODE` | Auth mode: `none`, `jwt`, or `oauth`. | `none` |
 | `MCP_LOG_LEVEL` | Log level (RFC 5424). | `info` |
-| `LOGS_DIR` | Directory for log files (Node.js only). | `<project-root>/logs` |
+| `LOGS_DIR` | Directory for log files (Node.js only). Set an absolute path to place logs outside the installed server directory. | `<server-package-root>/logs` |
 | `OTEL_ENABLED` | Enable [OpenTelemetry instrumentation](https://github.com/cyanheads/mcp-ts-core/tree/main/docs/telemetry). | `false` |
 
 See [`.env.example`](./.env.example) for the full list of optional overrides.
